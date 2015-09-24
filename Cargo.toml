@@ -1,0 +1,11 @@
+[package]
+name = "cl-cache"
+version = "0.1.0"
+authors = ["gnieto <gnieto.talo@gmail.com>"]
+
+[dependencies.opencl]
+git = "https://github.com/luqmana/rust-opencl"
+
+[dependencies]
+rust-crypto = "*"
+libc = "*"

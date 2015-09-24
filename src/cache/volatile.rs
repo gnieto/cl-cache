@@ -1,0 +1,44 @@
+use std::collections::BTreeMap;
+use cache::CacheBackend;
+
+pub struct VolatileCache {
+	map: BTreeMap<String, Vec<u8>>,
+}
+
+impl VolatileCache {
+	pub fn new() -> VolatileCache {
+		VolatileCache {
+			map: BTreeMap::new(),
+		}
+	}
+}
+
+impl CacheBackend for VolatileCache {
+    fn get(&self, key: &String) -> Option<Vec<u8>> {
+        let content = self.map.get(key);
+
+        match content {
+        	None => None,
+        	Some(binary) => Some(binary.clone()),
+        }
+    }
+
+    fn put(&mut self, key: &String, payload: &Vec<u8>) {
+    	self.map.insert(key.clone(), payload.clone());
+    	/*let final_path = format!("{}/{}.clbin", self.path.clone(), key);
+    	let mut f = File::create(final_path).unwrap();
+    	f.write_all(payload);*/
+    }
+}
+
+#[cfg(test)]
+mod test {
+	use super::*;
+	use cache::CacheBackend;
+
+	#[test]
+	fn it_returns_none_on_empty_cache() {
+		let c = VolatileCache::new();
+		assert!(c.get(&("test".to_string())).is_none());
+	}
+}
