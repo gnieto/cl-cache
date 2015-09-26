@@ -1,0 +1,20 @@
+name: OpenCL cache warmup
+version: 1.0
+author: Guillem Nieto <gnieto.talo@gmail.com>
+about: Binary to read all CL programs from a source directory, compile and cache them
+args:
+    - src_directory:
+        short: s
+        help: Sets the source directory
+        takes_value: true
+    - out_directory:
+        short: o
+        help: Output directory for the FileSystemCache
+        takes_value: true
+    - extension:
+        short: e
+        help: Use only the files with this extension
+        takes_value: true
+    - recursive:
+        short: R
+        help: If set, it will search CL programs on 'src_directory' recursively

@@ -2,6 +2,9 @@ pub mod device;
 pub mod program;
 pub mod context;
 pub mod platform;
+pub mod command_queue;
+pub mod kernel;
+pub mod buffer;
 
 use opencl::cl::*;
 use std::fmt::{Display, Formatter, Result};

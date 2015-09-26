@@ -1,19 +1,19 @@
 use std::collections::BTreeMap;
 use cache::CacheBackend;
 
-pub struct VolatileCache {
+pub struct Volatile {
 	map: BTreeMap<String, Vec<u8>>,
 }
 
-impl VolatileCache {
-	pub fn new() -> VolatileCache {
-		VolatileCache {
+impl Volatile {
+	pub fn new() -> Volatile {
+		Volatile {
 			map: BTreeMap::new(),
 		}
 	}
 }
 
-impl CacheBackend for VolatileCache {
+impl CacheBackend for Volatile {
     fn get(&self, key: &String) -> Option<Vec<u8>> {
         let content = self.map.get(key);
 
@@ -38,7 +38,7 @@ mod test {
 
 	#[test]
 	fn it_returns_none_on_empty_cache() {
-		let c = VolatileCache::new();
+		let c = Volatile::new();
 		assert!(c.get(&("test".to_string())).is_none());
 	}
 }

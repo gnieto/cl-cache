@@ -26,7 +26,6 @@ impl Device {
     	self.id
     }
 
-    // Copied from opencl-rust hl.rs. TODO: Adapt it
     fn profile_info(&self, name: cl_device_info) -> Option<String>
 	{
 		unsafe {
@@ -43,8 +42,8 @@ impl Device {
 				return None;
 			}
 
-			let mut buf : Vec<u8>
-				= repeat(0u8).take(size as usize).collect();
+			let mut buf : Vec<u8> = repeat(0u8).take(size as usize).collect();
+
 			let status = clGetDeviceInfo(
 				self.id,
 				name,

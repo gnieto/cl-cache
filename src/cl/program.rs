@@ -32,7 +32,6 @@ impl Program {
     }
 
     pub fn from_source(ctx: &Context, src: &str) -> Result<Program, OpenClError> {
-    	// TODO: Use a Result instead of Option to handle better the errors
     	let src = CString::new(src).unwrap();
 		let mut status: cl_int = 0;
 
@@ -69,10 +68,13 @@ impl Program {
     			ptr::null_mut(),
     			&mut errcode
     		);
-    		println!("Errcode: {}", errcode);
 
     		Some(Program::from_cl_program(program))
     	}
+    }
+
+    pub fn get_id(&self) -> cl_program {
+    	self.prg
     }
 
     pub fn build(&self, devices: &Vec<Device>) -> Result<(), OpenClError> {
@@ -82,7 +84,7 @@ impl Program {
 				self.prg,
 				devices.len() as u32,
 				devices.as_ptr() as *const *mut libc::c_void,
-				ptr::null(),
+				ptr::null_mut(),
 				mem::transmute(ptr::null::<fn()>()),
 				ptr::null_mut()
 			);
@@ -95,7 +97,7 @@ impl Program {
 		Ok(())
     }
 
-    pub fn get_log(&self, device: &Device) -> Result<String, String> {
+    pub fn get_log(&self, device: &Device) -> Result<String, OpenClError> {
     	unsafe {
     		let device_id = device.get_id();
 
@@ -111,7 +113,7 @@ impl Program {
 			);
 
 			if status != CL_SUCCESS as cl_int {
-				return Err("Could not get build log size".to_string());
+				return Err(OpenClError::new("Could not get build log size".to_string(), status));
 			}
 		
 			let mut buf : Vec<u8> = repeat(0u8).take(size as usize).collect();
@@ -125,12 +127,11 @@ impl Program {
 			);
 
 			// TODO: Check status
-			
 			let log = String::from_utf8_lossy(&buf[..]);
 			if status == CL_SUCCESS as cl_int {
 				Ok(log.into_owned())
 			} else {
-				Err(log.into_owned())
+				return Err(OpenClError::new("Could not get build log".to_string(), status));
 			}
 		}
     }

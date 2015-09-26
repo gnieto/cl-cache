@@ -1,6 +1,5 @@
 pub mod volatile;
 pub mod disk;
-pub mod repository;
 
 use cl::device::Device;
 use cl::context::Context;
@@ -40,13 +39,17 @@ impl Cache {
                     non_build_devices.push(device.clone());
                     keys.push(key.clone());
                 },
-                Some(binary) => {binaries_hash.insert(device.clone(), binary);},
+                Some(binary) => {
+                    binaries_hash.insert(device.clone(), binary);
+                },
             }
         }
 
-        let compilation_result = self.compile_program(&mut binaries_hash, &source, &ctx, &non_build_devices, &keys);
-        if compilation_result.is_err() {
-            return None;
+        if non_build_devices.len() > 0 {
+            let compilation_result = self.compile_program(&mut binaries_hash, &source, &ctx, &non_build_devices, &keys);
+            if compilation_result.is_err() {
+                return None;
+            }
         }
 
         let mut final_binaries = Vec::new();
@@ -54,7 +57,18 @@ impl Cache {
             final_binaries.push(binaries_hash[device].clone());
         }
 
-        Program::from_binary(ctx, devices, &final_binaries)
+        let program = Program::from_binary(ctx, devices, &final_binaries);
+        match program  {
+            None => None,
+            Some(p) => {
+                let build_result = p.build(&devices);        
+                if build_result.is_err() {
+                    None
+                } else {
+                    Some(p)
+                }
+            }
+        }
     }
 
     fn compile_program(&mut self, binaries_hash: &mut HashMap<Device, Vec<u8>>, source: &str, ctx: &Context, devices: &Vec<Device>, keys: &Vec<String>) -> Result<Vec<Vec<u8>>, OpenClError> {
