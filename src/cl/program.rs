@@ -52,7 +52,7 @@ impl Program {
 		}
     }
 
-    pub fn from_binary(ctx: &Context, devices: &Vec<Device>, binaries: &Vec<Vec<u8>>) -> Option<Program> {
+    pub fn from_binary(ctx: &Context, devices: &Vec<Device>, binaries: &Vec<Vec<u8>>) -> Result<Program, OpenClError> {
     	unsafe {
     		let devices_ids: Vec<cl_device_id> = devices.iter().map(|x| x.get_id()).collect();
     		let binary_sizes: Vec<u64> = binaries.iter().map(|x| x.len() as u64).collect();
@@ -69,7 +69,11 @@ impl Program {
     			&mut errcode
     		);
 
-    		Some(Program::from_cl_program(program))
+    		if errcode != CL_SUCCESS as cl_int {
+    			return Err(OpenClError::new("Error creating program from binaries".to_string(), errcode));
+    		}
+
+    		Ok(Program::from_cl_program(program))
     	}
     }
 
@@ -78,13 +82,24 @@ impl Program {
     }
 
     pub fn build(&self, devices: &Vec<Device>) -> Result<(), OpenClError> {
+    	self.build_with_options(devices, "")
+    }
+
+    pub fn build_with_options(&self, devices: &Vec<Device>, options: &str) -> Result<(), OpenClError> {
     	unsafe
 		{
+			let option_ptr = if options.len() > 0 {
+				options.as_ptr() as *const i8
+			} else {
+				ptr::null()
+			};
+			
+
 			let ret = clBuildProgram(
 				self.prg,
 				devices.len() as u32,
 				devices.as_ptr() as *const *mut libc::c_void,
-				ptr::null_mut(),
+				option_ptr,
 				mem::transmute(ptr::null::<fn()>()),
 				ptr::null_mut()
 			);
@@ -148,7 +163,6 @@ impl Program {
 		let mut buffer = Self::get_binaries_buffer(sizes);
 
     	unsafe {
-    		// println!("Size of c_void: {}", mem::size_of::<libc::c_void>());
     		let buffer_size = mem::size_of::<&libc::c_void>() * sizes_amount;
     		let mut buffer_ptrs: Vec<*mut u8> = buffer.iter_mut().map(|x| x.as_mut_ptr()).collect();
 

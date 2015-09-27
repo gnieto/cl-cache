@@ -5,6 +5,8 @@ use libc;
 use std::iter::repeat;
 use opencl::cl::CLStatus::*;
 use std::cmp::Eq;
+use cl::OpenClError;
+use std::mem;
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct Device {
@@ -22,8 +24,33 @@ impl Device {
 		self.profile_info(CL_DEVICE_NAME)
     }
 
+    pub fn get_vendor_id(&self) -> Result<cl_uint, OpenClError> {
+    	self.profile_info_scalar::<cl_uint>(CL_DEVICE_VENDOR_ID)
+    }
+
     pub fn get_id(&self) -> cl_device_id {
     	self.id
+    }
+
+    pub fn get_platform_id(&self) -> Result<cl_platform_id, OpenClError> {
+    	unsafe {
+			let mut result = 0 as cl_platform_id;
+			// println!("Result pointer {:p}; value: {:?}", &result, *result);
+
+			let status = clGetDeviceInfo(
+				self.id,
+				CL_DEVICE_PLATFORM,
+				mem::size_of::<cl_platform_id>() as u64,
+				(&mut result as *mut cl_platform_id) as *mut libc::c_void,
+				ptr::null_mut()
+			);
+
+			if status != CL_SUCCESS as cl_int {
+				return Err(OpenClError::new("Could not get the profile info".to_string(), status));
+			}
+
+			Ok(result)
+		}
     }
 
     fn profile_info(&self, name: cl_device_info) -> Option<String>
@@ -57,6 +84,26 @@ impl Device {
 			}
 
 			Some(String::from_utf8_unchecked(buf))
+		}
+	}
+
+	fn profile_info_scalar<T>(&self, name: cl_device_info) -> Result<T, OpenClError> where T: Default {
+		unsafe {
+			let mut result = Default::default();
+
+			let status = clGetDeviceInfo(
+				self.id,
+				name,
+				mem::size_of::<T>() as u64,
+				(&mut result as *mut T) as *mut libc::c_void,
+				ptr::null_mut()
+			);
+
+			if status != CL_SUCCESS as cl_int {
+				return Err(OpenClError::new("Could not get the profile info".to_string(), status));
+			}
+
+			Ok(result)
 		}
 	}
 }

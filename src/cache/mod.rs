@@ -4,6 +4,7 @@ pub mod disk;
 use cl::device::Device;
 use cl::context::Context;
 use cl::program::Program;
+use cl::platform::Platform;
 use cl::OpenClError;
 use std::collections::HashMap;
 use crypto::digest::Digest;
@@ -11,18 +12,60 @@ use crypto::sha2::Sha256;
 
 pub struct Cache {
     backend: Box<CacheBackend>,
-    digester: Box<Digest>,
+    key_hasher: Box<KeyHasher>,
 }
 
 impl Cache {
     pub fn new(backend: Box<CacheBackend>) -> Cache {
         Cache {
             backend: backend,
-            digester: Box::new(Sha256::new()),
+            key_hasher: Box::new(DefaultHasher::new()),
         }
     }
 
-    pub fn get(&mut self, source: &str, devices: &Vec<Device>, ctx: &Context) -> Option<Program> {
+    pub fn get(&mut self, source: &str, devices: &Vec<Device>, ctx: &Context) -> Result<Program, CacheError> {
+        self.get_with_options(&source, &devices, &ctx, "")
+    }
+
+    pub fn get_with_tag(&mut self, tag: &str, devices: &Vec<Device>, ctx: &Context) -> Result<Program, CacheError> {
+        let mut binaries: Vec<Vec<u8>> = Vec::new();
+
+        for device in devices {
+            let key = self.key_hasher.get_tag_key(&device, &tag);
+            let cache_result = self.backend.get(&key);
+
+            match cache_result {
+                None => {
+                    return Err(CacheError::NotAllBinariesLoaded(devices.clone()));
+                },
+                Some(binary) => {
+                    binaries.push(binary);
+                },
+            }
+        }
+
+        self.get_program_from_binaries(&ctx, &devices, &binaries)
+    }
+
+    pub fn put_with_tag(&mut self, tag: &str, devices: &Vec<Device>, program: &Program) -> Result<(), CacheError> {
+        let binaries = program.get_binaries().unwrap();
+        for (idx, b) in binaries.iter().enumerate() {
+            if b.len() == 0 {
+                return Err(CacheError::NeedBinaryProgram(devices[idx].clone()))
+            }
+        }
+
+        for (idx, d) in devices.iter().enumerate() {
+            self.backend.put(
+                &self.key_hasher.get_tag_key(&d, &tag),
+                &binaries[idx]
+            );
+        }
+
+        Ok(())
+    }
+
+    pub fn get_with_options(&mut self, source: &str, devices: &Vec<Device>, ctx: &Context, options: &str) -> Result<Program, CacheError> {
         // TODO: Avoid all this clones by creating smarter data structures
         // The code is copying a lot of times the buffers with the binaries
         let source_str = source.to_string();
@@ -31,7 +74,7 @@ impl Cache {
         let mut keys = Vec::new();
 
         for device in devices {
-            let key = self.build_cache_key(&device, &source_str);
+            let key = self.build_cache_key(&device, &source_str, &options.to_string());
 
             let cache_result = self.backend.get(&key);
             match cache_result {
@@ -46,9 +89,9 @@ impl Cache {
         }
 
         if non_build_devices.len() > 0 {
-            let compilation_result = self.compile_program(&mut binaries_hash, &source, &ctx, &non_build_devices, &keys);
+            let compilation_result = self.compile_program(&mut binaries_hash, &source, &options, &ctx, &non_build_devices, &keys);
             if compilation_result.is_err() {
-                return None;
+                return Err(compilation_result.err().unwrap());
             }
         }
 
@@ -57,23 +100,40 @@ impl Cache {
             final_binaries.push(binaries_hash[device].clone());
         }
 
-        let program = Program::from_binary(ctx, devices, &final_binaries);
+        self.get_program_from_binaries(&ctx, &devices, &final_binaries)
+    }
+
+    fn get_program_from_binaries(&self, ctx: &Context, devices: &Vec<Device>, binaries: &Vec<Vec<u8>>) -> Result<Program, CacheError> {
+        let program = Program::from_binary(ctx, devices, &binaries);
         match program  {
-            None => None,
-            Some(p) => {
-                let build_result = p.build(&devices);        
+            Err(_) => {
+                println!("Could not get program from binary");
+                Err(CacheError::CacheError)
+            },
+            Ok(p) => {
+                let build_result = p.build(&devices);
                 if build_result.is_err() {
-                    None
+                    Err(CacheError::ClError(build_result.err().unwrap()))
                 } else {
-                    Some(p)
+                    Ok(p)
                 }
             }
         }
     }
 
-    fn compile_program(&mut self, binaries_hash: &mut HashMap<Device, Vec<u8>>, source: &str, ctx: &Context, devices: &Vec<Device>, keys: &Vec<String>) -> Result<Vec<Vec<u8>>, OpenClError> {
+    fn compile_program(&mut self, binaries_hash: &mut HashMap<Device, Vec<u8>>, source: &str, options: &str, ctx: &Context, devices: &Vec<Device>, keys: &Vec<String>) -> Result<(), CacheError> {
         let program = try!{Program::from_source(ctx, source)};
-        try!{program.build(&devices)};
+        let build_result = if options.len() > 0 {
+            program.build_with_options(&devices, &options)
+        } else {
+            program.build(&devices)
+        };
+        
+
+        if build_result.is_err() {
+            return Err(CacheError::ClBuildError(self.get_build_logs(&program, &devices)));
+        }
+
         let binaries = try!{program.get_binaries()};
 
         for (idx, device) in devices.iter().enumerate() {
@@ -82,22 +142,90 @@ impl Cache {
             binaries_hash.insert(device.clone(), binary);
         }
 
-        Ok(Vec::new())
+        Ok(())
     }
 
-    fn build_cache_key(&mut self, device: &Device, source: &String) -> String {
-        self.digester.reset();
-        let device_name = device.get_name().unwrap();
-        let content_to_hash = source.clone() + &(*device_name);
-        self.digester.input_str(&content_to_hash);
+    fn get_build_logs(&self, program: &Program, devices: &Vec<Device>) -> HashMap<Device, String> {
+        let mut log_map: HashMap<Device, String> = HashMap::new();
 
-        self.digester.result_str()
+        for device in devices {
+            log_map.insert(device.clone(), program.get_log(&device).unwrap());
+        }
+
+        log_map
+    }
+
+    fn build_cache_key(&mut self, device: &Device, source: &String, options: &String) -> String {
+        let key = self.key_hasher.get_key(&device, &source, &options);
+        println!("Key {}", key);
+
+        key
+    }
+}
+
+#[derive(Debug)]
+pub enum CacheError {
+    ClBuildError(HashMap<Device, String>),
+    ClError(OpenClError),
+    NotAllBinariesLoaded(Vec<Device>),
+    NeedBinaryProgram(Device),
+    CacheError,
+}
+
+impl From<OpenClError> for CacheError {
+    fn from(error: OpenClError) -> Self {
+        CacheError::ClError(error)
     }
 }
 
 pub trait CacheBackend {
     fn get(&self, key: &String) -> Option<Vec<u8>>;
     fn put(&mut self, key: &String, payload: &Vec<u8>);
+}
+
+pub trait KeyHasher {
+    fn get_key(&mut self, device: &Device, source: &String, options: &String) -> String;
+    fn get_tag_key(&mut self, device: &Device, tag: &str) -> String;
+}
+
+pub struct DefaultHasher {
+    digester: Box<Digest>,
+}
+
+impl DefaultHasher {
+    pub fn new() -> DefaultHasher {
+        DefaultHasher {
+            digester: Box::new(Sha256::new()),
+        }
+    }
+}
+
+impl KeyHasher for DefaultHasher {
+    fn get_key(&mut self, device: &Device, source: &String, options: &String) -> String {
+        self.digester.reset();
+        let device_name = device.get_name().unwrap();
+        let platform_id = device.get_platform_id().unwrap();
+        let platform = Platform::from_platform_id(platform_id);
+        let platform_name = platform.name();
+        let platform_version = platform.version();
+        let content_to_hash = source.clone() + &(*device_name) + &(*platform_name) + &(*platform_version) + &options;
+        self.digester.input_str(&content_to_hash);
+
+        self.digester.result_str()
+    }
+
+    fn get_tag_key(&mut self, device: &Device, tag: &str) -> String {
+        self.digester.reset();
+        let device_name = device.get_name().unwrap();
+        let platform_id = device.get_platform_id().unwrap();
+        let platform = Platform::from_platform_id(platform_id);
+        let platform_name = platform.name();
+        let platform_version = platform.version();
+        let content_to_hash = "".to_string() + &(*device_name) + &(*platform_name) + &(*platform_version);
+        self.digester.input_str(&content_to_hash);
+
+        tag.to_string().clone() + &self.digester.result_str()
+    }
 }
 
 #[cfg(test)]
@@ -107,6 +235,7 @@ pub mod test {
     use cl::platform::Platform;
     use cl::program::Program;
     use cl::device::Device;
+    use cache::volatile::Volatile;
 
     struct DummyCacheBackend;
 
@@ -135,7 +264,7 @@ pub mod test {
 
         let keys: Vec<String> = devices.
             iter().
-            map(|x| c.build_cache_key(&x, &src.to_string())).
+            map(|x| c.build_cache_key(&x, &src.to_string(), &"".to_string())).
             collect();
 
         let mut unique_keys = keys.clone();
@@ -154,8 +283,69 @@ pub mod test {
         c.get(&src, &devices, &ctx).unwrap();
     }
 
+    #[test]
+    fn it_creates_distinct_hashes_with_options_and_without() {
+        let mut c = create_cache_dummy_backend();
+        let src = get_demo_source();
+        let (_, devices) = get_context();
+
+        let device = &devices[0];
+        let key_wo_options = c.build_cache_key(&device, &src.to_string(), &"".to_string());
+        let key_with_options = c.build_cache_key(&device, &src.to_string(), &"-D test=2".to_string());
+
+        assert!(key_wo_options != key_with_options)
+    }
+
+    #[test]
+    fn it_can_not_put_with_tag_with_program_from_source() {
+        let mut c = create_cache_dummy_backend();
+        let src = get_demo_source();
+        let (ctx, devices) = get_context();        
+        let prg = Program::from_source(&ctx, &src).unwrap();
+
+        let put_result = c.put_with_tag("test", &devices, &prg);
+        match put_result {
+            Err(CacheError::NeedBinaryProgram(_)) => (),
+            _ => panic!("Needed a binary program"),
+        }
+    }
+
+    #[test]
+    fn it_can_put_with_tag_and_recover_a_progran_with_cached_contents() {
+        let mut c = create_cache_volatile_backend();
+        let src = get_demo_source();
+        let (ctx, devices) = get_context();        
+        let prg = Program::from_source(&ctx, &src).unwrap();
+        prg.build(&devices).unwrap();
+
+        c.put_with_tag("test", &devices, &prg).unwrap();
+        
+        let new_program = c.get_with_tag("test", &devices, &ctx).unwrap();
+        let binaries = new_program.get_binaries().unwrap();
+        if binaries.iter().all(|x| {x.len() > 0}) == false {
+            panic!("All the binaries should have length >= 1")
+        }
+    }
+
+    #[test]
+    fn it_can_not_cache_same_program_with_distinct_options_and_same_tag() {
+        let mut c = create_cache_volatile_backend();
+        let src = get_demo_source();
+        let (ctx, devices) = get_context();        
+        let prg_a = Program::from_source(&ctx, &src).unwrap();
+        let prg_b = Program::from_source(&ctx, &src).unwrap();
+        prg_a.build(&devices).unwrap();
+        prg_b.build_with_options(&devices, "-D test=22").unwrap();
+
+        // TODO: Assert binaries are distinct
+    }
+
     fn create_cache_dummy_backend() -> Cache {
         Cache::new(Box::new(DummyCacheBackend))
+    }
+
+    fn create_cache_volatile_backend() -> Cache {
+        Cache::new(Box::new(Volatile::new()))
     }
 
     fn get_demo_source() -> &'static str {

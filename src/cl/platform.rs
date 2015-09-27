@@ -145,7 +145,7 @@ impl Platform {
         self.profile_info(CL_PLATFORM_EXTENSIONS).unwrap()
     }
 
-    pub unsafe fn from_platform_id(id: cl_platform_id) -> Platform {
+    pub fn from_platform_id(id: cl_platform_id) -> Platform {
         Platform { id: id }
     }
 

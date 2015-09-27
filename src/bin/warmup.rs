@@ -9,6 +9,7 @@ use clcache::cache::disk::FileSystemCache;
 use clcache::cl::device::Device;
 use clcache::cl::context::Context;
 use clcache::cl::platform::Platform;
+use clcache::cache::CacheError;
 
 use std::fs::*;
 use std::fs;
@@ -31,34 +32,52 @@ pub fn main() {
     let (ctx, devices) = get_context();
 
 
-    let mut entry_cb = move |entry: &DirEntry| {
-    	match entry.path().extension() {
+    let mut entry_cb = move |path: &PathBuf| {
+    	match path.extension() {
     		None => (),
     		Some(ext) => if ext == extension {
-				let abs_path_kernel = entry.path();
-				let mut file = File::open(abs_path_kernel).unwrap();
+				let mut file = File::open(path).unwrap();
 				let mut buffer: Vec<u8> = Vec::new();
 				file.read_to_end(&mut buffer).unwrap();
 
-				let result = cache.get(
+				let result = cache.get_with_options(
 					unsafe {str::from_utf8_unchecked(buffer.as_slice())},
 					&devices,
-					&ctx
+					&ctx,
+					""
 				);
 
 				match result {
-					None => println!("Some error when getting from cache. File: {}", Red.bold().paint(entry.path().to_str().unwrap())),
-					Some(_) => println!("No errors getting from cache. File: {}", Green.bold().paint(entry.path().to_str().unwrap())),
+					Ok(_) => println!("No errors getting from cache. File: {}", Green.bold().paint(path.to_str().unwrap())),
+					Err(CacheError::CacheError) => println!("Some GENERIC error when getting from cache. File: {}", Red.bold().paint(path.to_str().unwrap())),
+					Err(CacheError::ClBuildError(hm)) => {
+						println!("Got some error compiling the program. File: {}", Red.bold().paint(path.to_str().unwrap()));
+						for (device, log) in hm {
+							println!("Device: {}", Cyan.bold().paint(&device.get_name().unwrap()));
+							println!("{}", log);
+						}
+					}
+					Err(CacheError::ClError(error)) => {
+						println!("Got some error opencl-related on file: {}", Red.bold().paint(path.to_str().unwrap()));
+						println!("{:?}", error);
+					},
+					Err(_) => {
+						println!("Got some unknown error on file: {}", Red.bold().paint(path.to_str().unwrap()));
+					}
 				}
     		},
     	}
     };
 
     visit_dirs(&PathBuf::from(src_dir), recursive, &mut entry_cb).unwrap();
+
+    
 }
 
-fn visit_dirs<'a>(dir: &PathBuf, recursive: bool, cb: &mut FnMut(&DirEntry)) -> Result<()> {
-    if try!(fs::metadata(dir)).is_dir() {
+fn visit_dirs<'a>(dir: &PathBuf, recursive: bool, cb: &mut FnMut(&PathBuf)) -> Result<()> {
+	let top = try!(fs::metadata(dir));
+
+    if top.is_dir() {
         for entry in try!(fs::read_dir(dir)) {
             let entry = try!(entry);
             if try!(fs::metadata(entry.path())).is_dir() {
@@ -66,10 +85,13 @@ fn visit_dirs<'a>(dir: &PathBuf, recursive: bool, cb: &mut FnMut(&DirEntry)) -> 
                 	try!(visit_dirs(&entry.path(), recursive, cb));
             	}
             } else {
-                cb(&entry);
+                cb(&entry.path());
             }
         }
+    } else {
+    	cb(&dir);
     }
+
     Ok(())
 }
 

@@ -25,9 +25,6 @@ impl CacheBackend for Volatile {
 
     fn put(&mut self, key: &String, payload: &Vec<u8>) {
     	self.map.insert(key.clone(), payload.clone());
-    	/*let final_path = format!("{}/{}.clbin", self.path.clone(), key);
-    	let mut f = File::create(final_path).unwrap();
-    	f.write_all(payload);*/
     }
 }
 
