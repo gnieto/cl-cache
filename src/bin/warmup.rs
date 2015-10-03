@@ -12,7 +12,6 @@ use clcache::cl::device::Device;
 use clcache::cl::platform::DeviceQuery;
 use clcache::cl::platform::DeviceType;
 use clcache::cl::context::Context;
-use clcache::cl::platform::Platform;
 use clcache::cl::cl_root::ClRoot;
 use clcache::cl::cl_root::PlatformQuery;
 use clcache::cache::CacheError;
@@ -22,87 +21,101 @@ use std::fs::*;
 use std::fs;
 use std::str;
 use std::io::Read;
-use std::io::Result;
+use std::io;
+use std::result::Result;
 use std::path::*;
-use std::str::FromStr;
 
 use ansi_term::Colour::*;
-
-struct WarmupJob {
-	src: String,
-	out: String,
-	options: String,
-	platform: String,
-	devices: String,
-	recursive: bool,
-	extension: String,
-	verbose: u8,
-}
-
-impl WarmupJob {
-	pub fn new(src: String, out: String, options: String, platform: String, devices: String, extension: String) -> WarmupJob {
-		WarmupJob {
-			src: src,
-			out: out,
-			options: options,
-			platform: platform,
-			devices: devices,
-			extension: extension,	
-			recursive: false,
-			verbose: 0,
-		}
-	}
-}
 
 pub fn main() {
 	let yaml = load_yaml!("warmup.yml");
     let matches = App::from_yaml(yaml).get_matches();
-    let src_dir = matches.value_of("src_directory").unwrap().to_string();
-    let out_dir = matches.value_of("out_directory").unwrap_or(".").to_string();
-    let recursive = matches.is_present("recursive");
-    let extension = matches.value_of("extension").unwrap_or("cl");
-    let verbosity_level = matches.occurrences_of("verbosity");
-    let platform_str = matches.value_of("platform").unwrap_or("0");
-    let device_query = get_device_query(&matches);
 
-    let possible_platform = get_platform(platform_str);
-    if possible_platform.is_none() {
-    	println!(
-    		"{}: No platform found with expression: {}",
-    		Red.bold().paint("Error"),
-    		Cyan.bold().paint(platform_str)
-    	);
+    let mut job = WarmupJob::from_arg_matches(&matches).unwrap();
+    let job_result = job.execute();
 
-    	return
+    if job_result.is_err() {
+    	println!("{} {}", Red.bold().paint("Job error:"), job_result.err().unwrap());
     }
-    let platform = possible_platform.unwrap();
+}
 
-	let mut cache = Cache::new(Box::new(FileSystemCache::new(out_dir).unwrap()));
-    let (ctx, devices) = get_context(&platform, &device_query);
+struct WarmupJob {
+	src: String,
+	options: String,
+	devices: Vec<Device>,
+	context: Context,
+	recursive: bool,
+	extension: String,
+	verbose: u8,
+	cache: Cache,
+}
 
-    if devices.len() == 0 {
-		println!(
-    		"{} No devices found with query: {:?}",
-    		Red.bold().paint("Error: "),
-    		device_query
-    	);
+impl WarmupJob {
+	pub fn from_arg_matches(matches: &ArgMatches) -> Result<WarmupJob, String> {
+		let out = matches.value_of("out_directory").unwrap_or(".").to_string(); 
 
-    	return
-    }
+		let platform_str = Self::get_platform_query(&matches);
+		let opt_platform = ClRoot::get_platform(&platform_str);
+		if opt_platform.is_none() {
+			return Err(format!("No platform found with query: {:?}", platform_str));
+		}
 
-    let mut entry_cb = move |path: &PathBuf| {
-    	match path.extension() {
+		let platform = opt_platform.unwrap();
+
+		let devices_query = Self::get_device_query(&matches);
+		let devices = platform.get_devices_query(&devices_query);
+		if devices.len() == 0 {
+			return Err(format!("No devices found with query: {:?}", devices_query));
+		}
+
+		let context = Context::from_devices(&devices);
+
+		let job = WarmupJob {
+			src: matches.value_of("src_directory").unwrap().to_string(),
+			options: "".to_string(),
+			devices: devices,
+			context: context,
+			extension: matches.value_of("extension").unwrap_or("cl").to_string(),
+			recursive: matches.is_present("recursive"),
+			verbose: matches.occurrences_of("verbosity"),
+			cache: Cache::new(Box::new(FileSystemCache::new(out).unwrap())),
+		};
+
+		Ok(job)
+	}
+
+	pub fn execute(&mut self) -> Result<(), String> {
+		let buffer = PathBuf::from(&self.src);
+		let recursive = self.recursive;
+	    let visit_result = self.visit_dirs(&buffer, recursive);
+	    if visit_result.is_err() {
+	    	println!("Some error occured visting dir: {}", Red.bold().paint(&buffer.to_str().unwrap()));
+
+	    	if self.verbose > 0 {
+	    		println!(
+	    			"{}: {:?}",
+	    			Red.bold().paint("Error"),
+	    			visit_result.err()
+	    		);
+	    	}
+	    }
+
+		Ok(())
+	}
+
+	fn visit_path_buffer(&mut self, path: &PathBuf) {
+		match path.extension() {
     		None => (),
-    		Some(ext) => if ext == extension {
+    		Some(ext) => if ext == self.extension.as_str() {
 				let mut file = File::open(path).unwrap();
 				let mut buffer: Vec<u8> = Vec::new();
 				file.read_to_end(&mut buffer).unwrap();
 
-				let result = cache.get_with_options(
+				let result = self.cache.get_with_options(
 					unsafe {str::from_utf8_unchecked(buffer.as_slice())},
-					&devices,
-					&ctx,
-					""
+					&self.devices,
+					&self.context,
+					&self.options
 				);
 
 				match result {
@@ -111,7 +124,7 @@ pub fn main() {
 					Err(CacheError::ClBuildError(hm)) => {
 						println!("Got some error compiling the program. File: {}", Red.bold().paint(path.to_str().unwrap()));
 						for (device, log) in hm {
-							if verbosity_level > 0 {
+							if self.verbose > 0 {
 								println!("Device: {}", Cyan.bold().paint(&device.get_name().unwrap()));
 								println!("{}", log);
 							}
@@ -119,7 +132,7 @@ pub fn main() {
 					}
 					Err(CacheError::ClError(error)) => {
 						println!("Got some error opencl-related on file: {}", Red.bold().paint(path.to_str().unwrap()));
-						if verbosity_level > 0 {
+						if self.verbose > 0 {
 							println!("{:?}", error);
 						}
 					},
@@ -129,105 +142,82 @@ pub fn main() {
 				}
     		},
     	}
-    };
+	}
 
-    let buffer = PathBuf::from(src_dir);
-    let visit_result = visit_dirs(&buffer, recursive, &mut entry_cb);
-    if visit_result.is_err() {
-    	println!("Some error occured visting dir: {}", Red.bold().paint(&buffer.to_str().unwrap()));
+	fn visit_dirs(&mut self, dir: &PathBuf, recursive: bool) -> io::Result<()> {
+		let top = try!(fs::metadata(dir));
 
-    	if verbosity_level > 0 {
-    		println!(
-    			"{}: {:?}",
-    			Red.bold().paint("Error"),
-    			visit_result.err()
-    		);
-    	}
-    }
-}
+	    if top.is_dir() {
+	        for entry in try!(fs::read_dir(dir)) {
+	            let entry = try!(entry);
+	            if try!(fs::metadata(entry.path())).is_dir() {
+	            	if recursive {
+	                	try!(self.visit_dirs(&entry.path(), recursive));
+	            	}
+	            } else {
+	                self.visit_path_buffer(&entry.path());
+	            }
+	        }
+	    } else {
+	    	self.visit_path_buffer(&dir);
+	    }
 
-fn visit_dirs<'a>(dir: &PathBuf, recursive: bool, cb: &mut FnMut(&PathBuf)) -> Result<()> {
-	let top = try!(fs::metadata(dir));
+	    Ok(())
+	}
 
-    if top.is_dir() {
-        for entry in try!(fs::read_dir(dir)) {
-            let entry = try!(entry);
-            if try!(fs::metadata(entry.path())).is_dir() {
-            	if recursive {
-                	try!(visit_dirs(&entry.path(), recursive, cb));
-            	}
-            } else {
-                cb(&entry.path());
-            }
-        }
-    } else {
-    	cb(&dir);
-    }
+	fn get_device_query(matches: &ArgMatches) -> DeviceQuery {
+		let arg_present = (
+			matches.is_present("device_type"),
+			matches.is_present("device_index"),
+			matches.is_present("device_regexp"),
+		);
 
-    Ok(())
-}
+		let dq = match arg_present {
+			(true, _, _) => {
+				let dtype = matches.value_of("device_type").unwrap();
 
-fn get_device_query(matches: &ArgMatches) -> DeviceQuery {
-	let arg_present = (
-		matches.is_present("device_type"),
-		matches.is_present("device_index"),
-		matches.is_present("device_regexp"),
-	);
+				let device_type = match dtype {
+					"cpu" => DeviceType::CPU,
+					"gpu" => DeviceType::GPU,
+					"all" | _ => DeviceType::All,
+				};
 
-	let dq = match arg_present {
-		(true, _, _) => {
-			let dtype = matches.value_of("device_type").unwrap();
+				 DeviceQuery::Type(device_type)
+			},
+			(_, true, _) => {
+				let str_index = matches.value_of("device_index").unwrap();
+				let index =  match str_index.parse::<usize>() {
+					Err(_) => {
+						println!("'device_index' not numeric: Using index 0");
+						0
+					},
+					Ok(i) => i,
+				};
 
-			let device_type = match dtype {
-				"cpu" => DeviceType::CPU,
-				"gpu" => DeviceType::GPU,
-				"all" | _ => DeviceType::All,
-			};
+				DeviceQuery::Index(index)
+			},
+			(_, _, true) => {
+				let regex = Regex::new(matches.value_of("device_regexp").unwrap()).unwrap();
+				DeviceQuery::Regexp(regex.clone())
+			},
+			_ => DeviceQuery::Type(DeviceType::All),
+		};
 
-			 DeviceQuery::Type(device_type)
-		},
-		(_, true, _) => {
-			let str_index = matches.value_of("device_index").unwrap();
-			let index =  match str_index.parse::<usize>() {
-				Err(_) => {
-					println!("'device_index' not numeric: Using index 0");
-					0
-				},
-				Ok(i) => i,
-			};
+		dq
+	}
 
-			DeviceQuery::Index(index)
-		},
-		(_, _, true) => {
-			let regex = Regex::new(matches.value_of("device_regexp").unwrap()).unwrap();
-			DeviceQuery::Regexp(regex.clone())
-		},
-		_ => DeviceQuery::Type(DeviceType::All),
-	};
+	fn get_platform_query(matches: &ArgMatches) -> PlatformQuery {
+		let platform_str = matches.value_of("platform").unwrap_or("0");
+		let x = platform_str.parse::<usize>();
 
-	dq
-}
-
-fn get_platform(str_plaform: &str) -> Option<Platform> {
-	// let x: usize = from_str(str_plaform);
-	let x = str_plaform.parse::<usize>();
-
-	match x {
-		Err(_) => {
-			let regex = Regex::new(str_plaform).unwrap();
-			let pq = PlatformQuery::Regexp(&regex);
-			ClRoot::get_platform(&pq)
-		},
-		Ok(x) => {
-			let pq = PlatformQuery::Index(x);
-			ClRoot::get_platform(&pq)
+		match x {
+			Err(_) => {
+				let regex = Regex::new(platform_str).unwrap();
+				PlatformQuery::Regexp(regex.clone())
+			},
+			Ok(x) => {
+				PlatformQuery::Index(x)
+			}
 		}
 	}
-}
-
-fn get_context(platform: &Platform, device_query: &DeviceQuery) -> (Context, Vec<Device>) {
-    let devices = platform.get_devices_query(&device_query);
-
-    // TODO: Avoid this clones
-    (Context::from_devices(devices.clone()), devices.clone())
 }

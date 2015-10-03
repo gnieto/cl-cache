@@ -367,6 +367,6 @@ pub mod test {
         let devices = platforms[0].get_devices();
 
         // TODO: Avoid this clones
-        (Context::from_devices(devices.clone()), devices.clone())
+        (Context::from_devices(&devices), devices.clone())
     }
 }

@@ -65,7 +65,7 @@ fn get_context() -> (Context, Vec<Device>) {
     let devices = platforms[0].get_devices();
 
     // TODO: Avoid this clones
-    (Context::from_devices(devices.clone()), devices.clone())
+    (Context::from_devices(&devices), devices.clone())
 }
 
 fn check_result<T>(expected: &Vec<T>, got: &Vec<T>) -> bool where T: Eq {

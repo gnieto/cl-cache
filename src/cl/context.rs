@@ -11,7 +11,7 @@ pub struct Context {
 }
 
 impl Context {
-	pub fn from_devices(devices: Vec<Device>) -> Context {
+	pub fn from_devices(devices: &Vec<Device>) -> Context {
 		unsafe {
 			let mut errcode = 0;
 
@@ -51,7 +51,7 @@ pub mod test {
     	let ref platform = platforms[0];
     	let devices = platform.get_devices();
 
-    	let ctx = Context::from_devices(devices);
+    	let ctx = Context::from_devices(&devices);
     	println!("Context: {:?}", ctx);
     }
 }	

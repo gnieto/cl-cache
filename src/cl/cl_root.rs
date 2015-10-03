@@ -50,8 +50,9 @@ impl ClRoot {
 	}
 }
 
-pub enum PlatformQuery<'a> {
+#[derive(Debug)]
+pub enum PlatformQuery {
 	Default,
 	Index(usize),
-	Regexp(&'a Regex),
+	Regexp(Regex),
 }
