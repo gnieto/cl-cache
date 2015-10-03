@@ -10,6 +10,7 @@ git = "https://github.com/luqmana/rust-opencl"
 rust-crypto = "*"
 libc = "*"
 ansi_term = "*"
+regex = "0.1.41"
 
 [dependencies.clap]
 features = ["yaml"]

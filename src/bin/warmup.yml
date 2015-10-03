@@ -7,14 +7,39 @@ args:
         short: s
         help: Sets the source directory
         takes_value: true
+        required: true
     - out_directory:
         short: o
         help: Output directory for the FileSystemCache
         takes_value: true
     - extension:
         short: e
-        help: Use only the files with this extension
+        help: Use only the files with this extension (default:cl)
         takes_value: true
     - recursive:
         short: R
         help: If set, it will search CL programs on 'src_directory' recursively
+    - verbosity:
+        short: v
+        multiple: true
+        help: Level of verbosity
+    - platform:
+        short: p
+        takes_value: true
+        help: Selects a target platform:If is numeric, will retrieve the platform with that index. If string, a regexp on the name will be applied
+    - device_type:
+        short: t
+        takes_value: true
+        help: Selects the device that match this type
+    - device_index:
+        short: i
+        takes_value: true
+        help: Use only the device on the given index
+    - device_regexp:
+        short: x
+        takes_value: true
+        help: Use only the devices that matches the given regexp
+    - options:
+        short: n
+        takes_value: true
+        help: Flags that will be forwarded to clCreateProgramWithSource

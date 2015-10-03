@@ -53,6 +53,14 @@ impl Program {
     }
 
     pub fn from_binary(ctx: &Context, devices: &Vec<Device>, binaries: &Vec<Vec<u8>>) -> Result<Program, OpenClError> {
+    	if devices.len() == 0 {
+    		return Err(OpenClError::from_string("Can't create program without devices".to_string()));
+    	}
+
+    	if binaries.iter().any(|x| x.len() == 0) {
+    		return Err(OpenClError::from_string("Binaries need to have some size".to_string()));
+    	}
+
     	unsafe {
     		let devices_ids: Vec<cl_device_id> = devices.iter().map(|x| x.get_id()).collect();
     		let binary_sizes: Vec<u64> = binaries.iter().map(|x| x.len() as u64).collect();

@@ -106,9 +106,9 @@ impl Cache {
     fn get_program_from_binaries(&self, ctx: &Context, devices: &Vec<Device>, binaries: &Vec<Vec<u8>>) -> Result<Program, CacheError> {
         let program = Program::from_binary(ctx, devices, &binaries);
         match program  {
-            Err(_) => {
+            Err(cl_error) => {
                 println!("Could not get program from binary");
-                Err(CacheError::CacheError)
+                Err(CacheError::ClError(cl_error))
             },
             Ok(p) => {
                 let build_result = p.build(&devices);
@@ -129,12 +129,15 @@ impl Cache {
             program.build(&devices)
         };
         
-
         if build_result.is_err() {
             return Err(CacheError::ClBuildError(self.get_build_logs(&program, &devices)));
         }
 
         let binaries = try!{program.get_binaries()};
+
+        if binaries.iter().any(|x| x.len() == 0) {
+            return Err(CacheError::ClBuildError(self.get_build_logs(&program, &devices)));   
+        }
 
         for (idx, device) in devices.iter().enumerate() {
             let binary = binaries[idx].clone();
@@ -157,7 +160,6 @@ impl Cache {
 
     fn build_cache_key(&mut self, device: &Device, source: &String, options: &String) -> String {
         let key = self.key_hasher.get_key(&device, &source, &options);
-        println!("Key {}", key);
 
         key
     }

@@ -5,6 +5,7 @@ pub mod platform;
 pub mod command_queue;
 pub mod kernel;
 pub mod buffer;
+pub mod cl_root;
 
 use opencl::cl::*;
 use std::fmt::{Display, Formatter, Result};

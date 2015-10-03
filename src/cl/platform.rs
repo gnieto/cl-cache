@@ -7,21 +7,35 @@ use libc;
 use std;
 use cl::OpenClError;
 use opencl::cl::CLStatus::*;
+use regex::Regex;
 
 // Almost copy of the platfrom from opencl_rust
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum DeviceType {
-      CPU, GPU
+      CPU,
+      GPU,
+      All,
 }
 
-fn convert_device_type(device: DeviceType) -> cl_device_type {
-    match device {
-        DeviceType::CPU => CL_DEVICE_TYPE_CPU,
-        DeviceType::GPU => CL_DEVICE_TYPE_GPU | CL_DEVICE_TYPE_ACCELERATOR
+impl DeviceType {
+    pub fn convert_device_type(&self) -> cl_device_type {
+        match *self {
+            DeviceType::CPU => CL_DEVICE_TYPE_CPU,
+            DeviceType::GPU => CL_DEVICE_TYPE_GPU | CL_DEVICE_TYPE_ACCELERATOR,
+            DeviceType::All => CL_DEVICE_TYPE_ALL
+        }        
     }
 }
 
+#[derive(Debug)]
+pub enum DeviceQuery {
+    Index(usize),
+    Type(DeviceType),
+    Regexp(Regex),
+}
+
+#[derive(Clone)]
 pub struct Platform {
     id: cl_platform_id
 }
@@ -61,19 +75,36 @@ impl Platform {
         }
     }
 
+    pub fn get_devices_query(&self, query: &DeviceQuery) -> Vec<Device> {
+        match *query {
+            DeviceQuery::Index(i) => {
+                let all_devices = self.get_devices();
+                let mut out_device = Vec::new();
+                out_device.push(all_devices[0].clone());
+
+                out_device
+            },
+            DeviceQuery::Regexp(ref regex) => {
+                let all_devices = self.get_devices();
+                let mut out_devices = Vec::new();
+
+                for d in all_devices.iter() {
+                    if regex.is_match(&d.get_name().unwrap()) {
+                        out_devices.push(d.clone());
+                    }
+                }
+
+                out_devices
+            },
+            DeviceQuery::Type(device_type) => {
+                self.get_devices_internal(device_type.convert_device_type())
+            },
+        }
+    }
+
     pub fn get_devices(&self) -> Vec<Device>
     {
         self.get_devices_internal(CL_DEVICE_TYPE_ALL)
-    }
-
-    pub fn get_devices_by_types(&self, types: &[DeviceType]) -> Vec<Device>
-    {
-        let mut dtype = 0;
-        for &t in types.iter() {
-          dtype |= convert_device_type(t);
-        }
-
-        self.get_devices_internal(dtype)
     }
 
     fn profile_info(&self, name: cl_platform_info) -> Result<String, OpenClError>
