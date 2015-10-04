@@ -9,6 +9,7 @@ use opencl::cl::CLStatus::*;
 use std::ptr;
 use std::iter::repeat;
 use libc;
+use std::ops::Drop;
 
 pub struct CommandQueue {
 	queue: cl_command_queue,
@@ -111,5 +112,13 @@ impl CommandQueue {
 		}
 
 		Ok(())
+	}
+}
+
+impl Drop for CommandQueue {
+	fn drop(&mut self) {
+		unsafe {
+			clReleaseCommandQueue(self.queue);
+		}
 	}
 }

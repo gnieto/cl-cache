@@ -6,6 +6,7 @@ use opencl::cl::CLStatus::*;
 use std::mem;
 use std::ptr;
 use std::marker::PhantomData;
+use std::ops::Drop;
 
 pub trait KernelArgument {
 	fn get_size(&self) -> usize;
@@ -50,6 +51,14 @@ impl RawBuffer {
 
 	pub fn as_ptr(&self) -> *const cl_mem {
 		&self.buffer
+	}
+}
+
+impl Drop for RawBuffer {
+	fn drop(&mut self) {
+		unsafe {
+			clReleaseMemObject(self.buffer);
+		}
 	}
 }
 

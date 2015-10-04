@@ -9,6 +9,7 @@ use std::mem;
 use libc;
 use std::iter::repeat;
 use cl::OpenClError;
+use std::ops::Drop;
 
 #[derive(Debug)]
 pub struct Program {

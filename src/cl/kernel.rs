@@ -7,9 +7,18 @@ use std::ffi::CString;
 use cl::buffer::KernelArgument;
 use libc;
 use std::ptr;
+use std::ops::Drop;
 
 pub struct Kernel {
 	kernel: cl_kernel,
+}
+
+impl Drop for Kernel {
+	fn drop(&mut self) {
+		unsafe {
+			clReleaseKernel(self.kernel);
+		}
+	}
 }
 
 impl Kernel {
