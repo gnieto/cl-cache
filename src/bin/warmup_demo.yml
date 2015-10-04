@@ -22,3 +22,14 @@ jobs:
         platform_index: 0
         options: -Dtest=22
         verbose: 1
+    - tagged:
+        source: /opt/AMDAPP/samples/opencl/cl/HelloWorld/HelloWorld_Kernel.cl
+        output: .
+        recursive: true
+        extension: cl
+        device_type: gpu
+        device_index: 0
+        device_regex: Oland
+        platform_index: 0
+        tag: HelloWorld_slow
+        verbose: 1

@@ -13,6 +13,7 @@ use clcache::cl::device::Device;
 use clcache::cl::platform::DeviceQuery;
 use clcache::cl::platform::DeviceType;
 use clcache::cl::context::Context;
+use clcache::cl::program::Program;
 use clcache::cl::cl_root::ClRoot;
 use clcache::cl::cl_root::PlatformQuery;
 use clcache::cache::CacheError;
@@ -290,7 +291,7 @@ impl JobDecoder for Yaml {
 	}
 
 	fn get_recursive(&self) -> bool {
-		return self["options"].as_bool().unwrap_or(false);
+		return self["recursive"].as_bool().unwrap_or(false);
 	}
 
 	fn get_extension(&self) -> String {
@@ -376,13 +377,38 @@ impl WarmupJob {
 				let mut file = File::open(path).unwrap();
 				let mut buffer: Vec<u8> = Vec::new();
 				file.read_to_end(&mut buffer).unwrap();
+				let source = unsafe {str::from_utf8_unchecked(buffer.as_slice())};
 
-				let result = self.cache.get_with_options(
-					unsafe {str::from_utf8_unchecked(buffer.as_slice())},
-					&self.devices,
-					&self.context,
-					&self.options
-				);
+				let result = if self.tagged.is_none() {
+					self.cache.get_with_options(
+						source,
+						&self.devices,
+						&self.context,
+						&self.options
+					)
+				} else {
+					let tag = self.tagged.clone().unwrap();
+					// TODO: Hide this piece of code. Common compilation point
+					let program = Program::from_source(&self.context, source).unwrap();
+
+			        let build_result = if self.options.len() > 0 {
+			            program.build_with_options(&self.devices, &self.options)
+			        } else {
+			            program.build(&self.devices)
+			        };
+			        
+			        // build_result
+			        if build_result.is_ok() {
+			        	let put_result = self.cache.put_with_tag(&tag, &self.devices, &program);
+			        	if put_result.is_ok() {
+			        		Ok(program)
+			        	} else {
+			        		Err(put_result.err().unwrap())
+			        	}
+			        } else {
+			        	Err(CacheError::ClError(build_result.err().unwrap()))
+			        }
+				};
 
 				match result {
 					Ok(_) => println!("No errors getting from cache. File: {}", Green.bold().paint(path.to_str().unwrap())),
