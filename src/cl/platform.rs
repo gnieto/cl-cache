@@ -4,7 +4,6 @@ use cl::device::Device;
 use std::ptr;
 use std::iter::repeat;
 use libc;
-use std;
 use cl::OpenClError;
 use opencl::cl::CLStatus::*;
 use regex::Regex;
@@ -35,44 +34,14 @@ pub enum DeviceQuery {
     Regexp(Regex),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Platform {
     id: cl_platform_id
 }
 
 impl Platform {
-    pub fn all() -> Result<Vec<Platform>, OpenClError> {
-        let mut num_platforms = 0 as cl_uint;
-
-        unsafe
-        {
-            let guard = platforms_mutex.lock();
-            let status = clGetPlatformIDs(0,
-                ptr::null_mut(),
-                (&mut num_platforms)
-            );
-
-            if status != CL_SUCCESS as cl_int {
-                return Err(OpenClError::new("Could not get the number of platforms".to_string(), status));
-            }
-            // unlock this before the check in case the check fails
-
-            let mut ids: Vec<cl_device_id> = repeat(0 as cl_device_id)
-                .take(num_platforms as usize).collect();
-
-            let status = clGetPlatformIDs(num_platforms,
-                ids.as_mut_ptr(),
-                (&mut num_platforms)
-            );
-
-            if status != CL_SUCCESS as cl_int {
-                return Err(OpenClError::new("Could not get the platforms".to_string(), status));
-            }
-
-            let _ = guard;
-
-            Ok(ids.iter().map(|id| { Platform { id: *id } }).collect())
-        }
+    pub fn from_platform_id(id: cl_platform_id) -> Platform {
+        Platform { id: id }
     }
 
     pub fn get_devices_query(&self, query: &DeviceQuery) -> Vec<Device> {
@@ -176,10 +145,6 @@ impl Platform {
         self.profile_info(CL_PLATFORM_EXTENSIONS).unwrap()
     }
 
-    pub fn from_platform_id(id: cl_platform_id) -> Platform {
-        Platform { id: id }
-    }
-
     fn get_devices_internal(&self, dtype: cl_device_type) -> Vec<Device>
     {
         unsafe
@@ -197,8 +162,3 @@ impl Platform {
         }
     }
 }
-
-// This mutex is used to work around weak OpenCL implementations.
-// On some implementations concurrent calls to clGetPlatformIDs
-// will cause the implantation to return invalid status.
-static mut platforms_mutex: std::sync::StaticMutex = std::sync::MUTEX_INIT;

@@ -4,7 +4,8 @@ use clcache::cache::Cache;
 use clcache::cache::disk::FileSystemCache;
 use clcache::cl::device::Device;
 use clcache::cl::context::Context;
-use clcache::cl::platform::Platform;
+use clcache::cl::platform::*;
+use clcache::cl::cl_root::*;
 use clcache::cl::command_queue::CommandQueue;
 use clcache::cl::kernel::*;
 use clcache::cl::buffer::{InputBuffer, OutputBuffer};
@@ -56,13 +57,11 @@ pub fn get_demo_code() -> &'static str {
 }
 
 fn get_context() -> (Context, Vec<Device>) {
-    let platforms = Platform::all().unwrap();
+	let pq = PlatformQuery::Index(0);
+    let platform = ClRoot::get_platform(&pq).unwrap();
 
-    if platforms.len() == 0 {
-        panic!("There is no OpenCL platform");
-    }
-
-    let devices = platforms[0].get_devices();
+    let dq = DeviceQuery::Type(DeviceType::All);
+    let devices = platform.get_devices_query(&dq);
 
     // TODO: Avoid this clones
     (Context::from_devices(&devices), devices.clone())

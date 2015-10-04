@@ -53,7 +53,7 @@ pub fn main() {
 	    jobs
     };
 
-    for job in jobs.iter_mut() {
+    while let Some(mut job) = jobs.pop() {
     	if job.name.is_some() {
     		let job_name = job.name.clone().unwrap();
     		println!("Executing job: {}", Cyan.bold().paint(&job_name));

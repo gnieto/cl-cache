@@ -234,10 +234,11 @@ impl KeyHasher for DefaultHasher {
 pub mod test {
     use super::*;
     use cl::context::Context;
-    use cl::platform::Platform;
     use cl::program::Program;
     use cl::device::Device;
     use cache::volatile::Volatile;
+    use cl::cl_root::*;
+    use cl::platform::*;
 
     struct DummyCacheBackend;
 
@@ -358,13 +359,11 @@ pub mod test {
     }
 
     fn get_context() -> (Context, Vec<Device>) {
-        let platforms = Platform::all().unwrap();
+        let pq = PlatformQuery::Index(0);
+        let platform = ClRoot::get_platform(&pq).unwrap();
 
-        if platforms.len() == 0 {
-            panic!("There is no OpenCL platform");
-        }
-
-        let devices = platforms[0].get_devices();
+        let dq = DeviceQuery::Type(DeviceType::All);
+        let devices = platform.get_devices_query(&dq);
 
         // TODO: Avoid this clones
         (Context::from_devices(&devices), devices.clone())

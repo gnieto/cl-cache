@@ -4,6 +4,7 @@ use cl::device::Device;
 use std::mem;
 use std::ptr;
 use libc;
+use std::ops::Drop;
 
 #[derive(Debug)]
 pub struct Context {
@@ -35,21 +36,27 @@ impl Context {
 	}
 }
 
+impl Drop for Context {
+	fn drop(&mut self) {
+		unsafe {
+			clReleaseContext(self.ctx);
+		}
+	}
+}
+
 #[cfg(test)]
 pub mod test {
-    use cl::platform::Platform;
+    use cl::platform::*;
+    use cl::cl_root::*;
     use super::*;
 
     #[test]
     pub fn it_can_create_a_context_from_devices() {
-    	let platforms = Platform::all().unwrap();
+    	let pq = PlatformQuery::Index(0);
+        let platform = ClRoot::get_platform(&pq).unwrap();
 
-    	if platforms.len() == 0 {
-    		panic!("Could not get any platform");
-    	}
-
-    	let ref platform = platforms[0];
-    	let devices = platform.get_devices();
+        let dq = DeviceQuery::Type(DeviceType::All);
+        let devices = platform.get_devices_query(&dq);
 
     	let ctx = Context::from_devices(&devices);
     	println!("Context: {:?}", ctx);
