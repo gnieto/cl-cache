@@ -7,7 +7,6 @@ args:
         short: s
         help: Sets the source directory
         takes_value: true
-        required: true
     - out_directory:
         short: o
         help: Output directory for the FileSystemCache
@@ -43,3 +42,7 @@ args:
         short: n
         takes_value: true
         help: Flags that will be forwarded to clCreateProgramWithSource
+    - yaml:
+        short: yaml
+        takes_value: true
+        help: Read target YAML file to load the works

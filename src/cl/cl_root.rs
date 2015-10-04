@@ -1,11 +1,3 @@
-use opencl::cl::*;
-use opencl::cl::ll::*;
-use cl::context::Context;
-use cl::OpenClError;
-use opencl::cl::CLStatus::*;
-use std::mem;
-use std::ptr;
-use std::marker::PhantomData;
 use cl::platform::Platform;
 use regex::Regex;
 
@@ -33,7 +25,7 @@ impl ClRoot {
 
 		match index {
 			None => None,
-			Some(i) => Some(platforms[0].clone())
+			Some(_) => Some(platforms[0].clone())
 		}
 	}
 
@@ -43,7 +35,7 @@ impl ClRoot {
 
 	fn platform_from_idx(platforms: &Vec<Platform>, index: usize) -> Option<Platform> {
 		if platforms.len() > 0 {
-			Some(platforms[0].clone())
+			Some(platforms[index].clone())
 		} else {
 			None
 		}		

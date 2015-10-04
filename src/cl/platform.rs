@@ -35,7 +35,7 @@ pub enum DeviceQuery {
     Regexp(Regex),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Platform {
     id: cl_platform_id
 }
@@ -80,7 +80,7 @@ impl Platform {
             DeviceQuery::Index(i) => {
                 let all_devices = self.get_devices();
                 let mut out_device = Vec::new();
-                out_device.push(all_devices[0].clone());
+                out_device.push(all_devices[i].clone());
 
                 out_device
             },

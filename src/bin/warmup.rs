@@ -3,6 +3,7 @@ extern crate clcache;
 #[macro_use] extern crate clap;
 extern crate ansi_term;
 extern crate regex;
+extern crate yaml_rust;
 
 use clap::App;
 use clap::ArgMatches;
@@ -24,19 +25,95 @@ use std::io::Read;
 use std::io;
 use std::result::Result;
 use std::path::*;
+use yaml_rust::{YamlLoader, Yaml};
 
 use ansi_term::Colour::*;
 
 pub fn main() {
-	let yaml = load_yaml!("warmup.yml");
+	let yaml = load_yaml!("warmup_clap.yml");
     let matches = App::from_yaml(yaml).get_matches();
+    let mut jobs = if matches.is_present("yaml") {
+    	let yaml = matches.value_of("yaml").unwrap();
+    	let possible_jobs = load_from_yaml(yaml);
 
-    let mut job = WarmupJob::from_arg_matches(&matches).unwrap();
-    let job_result = job.execute();
+    	if possible_jobs.is_err() {
+    		println!("Could not decode the target YAML: {}", yaml);
+    		println!("Reason: {}", possible_jobs.err().unwrap());
+    		return
+    	}
 
-    if job_result.is_err() {
-    	println!("{} {}", Red.bold().paint("Job error:"), job_result.err().unwrap());
+    	possible_jobs.unwrap()    	
+    } else {
+    	let job = WarmupJob::from_decoder(Box::new(&matches)).unwrap();
+
+	    let mut jobs = Vec::new();
+	    jobs.push(job);
+
+	    jobs
+    };
+
+    for job in jobs.iter_mut() {
+    	if job.name.is_some() {
+    		let job_name = job.name.clone().unwrap();
+    		println!("Executing job: {}", Cyan.bold().paint(&job_name));
+    	}
+
+    	let job_result = job.execute();
+
+    	if job_result.is_err() {
+    		println!(
+    			"{} {:?}",
+    			Red.bold().paint("Error: "),
+    			job_result.err(),
+    		);
+    	}
     }
+}
+
+fn load_from_yaml(file: &str) -> Result<Vec<WarmupJob>, String> {
+	let file_open_result = File::open(file);
+
+ 	if file_open_result.is_err() {
+ 		return Err("Could not open target file".to_string());
+ 	}
+
+ 	let mut file = file_open_result.unwrap();
+ 	let mut file_str = Vec::new();
+ 	file.read_to_end(&mut file_str).unwrap();
+ 	let str_result = unsafe{ String::from_utf8_unchecked(file_str) };
+ 	let ref yaml_result = YamlLoader::load_from_str(&str_result).unwrap();
+ 	let doc = &yaml_result[0];
+
+ 	if doc["jobs"].as_vec().is_none() {
+ 		return Err("Field 'jobs' on root not found".to_string());
+ 	}
+
+	let mut jobs = Vec::new();
+
+	for job_yaml in doc["jobs"].as_vec().unwrap() {
+		if job_yaml.as_hash().is_none() {
+			return Err("Jobs child is not a hash".to_string());
+		}
+
+		for (job_name, job_hash) in job_yaml.as_hash().unwrap() {
+			if job_hash["source"].is_badvalue() {
+				return Err("Some of the childs are not a hash or 'source' field not found".to_string());
+			}
+
+			let maybe_job = WarmupJob::from_decoder(Box::new(job_hash));
+			if maybe_job.is_ok() {
+				let mut job = maybe_job.unwrap();
+
+				if job_name.as_str().is_some() {
+					job.set_name(job_name.as_str().unwrap().to_string());
+				}
+				
+				jobs.push(job);
+			}
+		}
+	}
+
+	Ok(jobs)
 }
 
 struct WarmupJob {
@@ -48,21 +125,208 @@ struct WarmupJob {
 	extension: String,
 	verbose: u8,
 	cache: Cache,
+	tagged: Option<String>,
+	pub name: Option<String>,
+}
+
+trait JobDecoder {
+	fn get_input(&self) -> String;
+	fn get_output(&self) -> String;
+	fn get_options(&self) -> String;
+	fn get_device_query(&self) -> DeviceQuery;
+	fn get_platform_query(&self) -> PlatformQuery;
+	fn get_recursive(&self) -> bool;
+	fn get_extension(&self) -> String;
+	fn get_verbose(&self) -> u8;
+	fn get_tag(&self) -> Option<String>;
+}
+
+impl<'a, 'b> JobDecoder for ArgMatches<'a, 'b> {
+	fn get_device_query(&self) -> DeviceQuery {
+		let arg_present = (
+			self.is_present("device_type"),
+			self.is_present("device_index"),
+			self.is_present("device_regexp"),
+		);
+
+		let dq = match arg_present {
+			(true, _, _) => {
+				let dtype = self.value_of("device_type").unwrap();
+
+				let device_type = match dtype {
+					"cpu" => DeviceType::CPU,
+					"gpu" => DeviceType::GPU,
+					"all" | _ => DeviceType::All,
+				};
+
+				 DeviceQuery::Type(device_type)
+			},
+			(_, true, _) => {
+				let str_index = self.value_of("device_index").unwrap();
+				let index =  match str_index.parse::<usize>() {
+					Err(_) => {
+						println!("'device_index' not numeric: Using index 0");
+						0
+					},
+					Ok(i) => i,
+				};
+
+				DeviceQuery::Index(index)
+			},
+			(_, _, true) => {
+				let regex = Regex::new(self.value_of("device_regexp").unwrap()).unwrap();
+				DeviceQuery::Regexp(regex.clone())
+			},
+			_ => DeviceQuery::Type(DeviceType::All),
+		};
+
+		dq
+	}
+
+	fn get_input(&self) -> String {
+		self.value_of("src_directory").unwrap().to_string()
+	}
+
+	fn get_output(&self) -> String {
+		self.value_of("out_directory").unwrap_or(".").to_string()
+	}
+
+	fn get_options(&self) -> String {
+		self.value_of("options").unwrap_or("").to_string()
+	}
+
+	fn get_platform_query(&self) -> PlatformQuery {
+		let platform_str = self.value_of("platform").unwrap_or("0");
+		let x = platform_str.parse::<usize>();
+
+		match x {
+			Err(_) => {
+				let regex = Regex::new(platform_str).unwrap();
+				PlatformQuery::Regexp(regex.clone())
+			},
+			Ok(x) => {
+				PlatformQuery::Index(x)
+			}
+		}
+	}
+
+	fn get_recursive(&self) -> bool {
+		self.is_present("recursive")
+	}
+
+	fn get_extension(&self) -> String {
+		self.value_of("extension").unwrap_or("cl").to_string()
+	}
+
+	fn get_verbose(&self) -> u8 {
+		self.occurrences_of("verbosity")
+	}
+
+	fn get_tag(&self) -> Option<String> {
+		None
+	}
+}
+
+impl JobDecoder for Yaml {
+	fn get_device_query(&self) -> DeviceQuery {
+		let (device_type, device_index, device_regex) = (
+			self["device_type"].as_str(),
+			self["device_index"].as_i64(),
+			self["device_regex"].as_str()
+		);
+
+		if device_type.is_some() {
+			let dtype = match device_type {
+				Some("cpu") => DeviceType::CPU,
+				Some("gpu") => DeviceType::GPU,
+				Some("all") | _ => DeviceType::All,
+			};
+
+			DeviceQuery::Type(dtype)
+		} else if device_index.is_some() {
+			let index =  match device_index {
+				None => {
+					println!("'device_index' not numeric: Using index 0");
+					0
+				},
+				Some(i) => i as usize,
+			};
+
+			DeviceQuery::Index(index)
+		} else if device_regex.is_some() {
+			let regex = Regex::new(device_regex.unwrap()).unwrap();
+			DeviceQuery::Regexp(regex.clone())
+		} else {
+			DeviceQuery::Index(0)
+		}
+
+	}
+
+	fn get_input(&self) -> String {		
+		return self["source"].as_str().unwrap().to_string();
+	}
+
+	fn get_output(&self) -> String {
+		return self["output"].as_str().unwrap_or(".").to_string();
+	}
+
+	fn get_options(&self) -> String {
+		return self["options"].as_str().unwrap_or("").to_string();
+	}
+
+	fn get_platform_query(&self) -> PlatformQuery {
+		let index = self["platform_index"].as_i64().unwrap_or(0);
+		let regex = self["platform_regex"].as_str();
+
+		match regex {
+			None => {
+				PlatformQuery::Index(index as usize)
+			},
+			Some(x) => {
+				let regex = Regex::new(x).unwrap();
+				PlatformQuery::Regexp(regex.clone())
+			}
+		}
+	}
+
+	fn get_recursive(&self) -> bool {
+		return self["options"].as_bool().unwrap_or(false);
+	}
+
+	fn get_extension(&self) -> String {
+		return self["extension"].as_str().unwrap_or("cl").to_string();
+	}
+
+	fn get_verbose(&self) -> u8 {
+		return self["options"].as_i64().unwrap_or(0) as u8;
+	}
+
+	fn get_tag(&self) -> Option<String> {
+		if self["tag"].as_str().is_none() {
+			None
+		} else {
+			Some(self["tag"].as_str().unwrap().to_string())
+		}
+	}
 }
 
 impl WarmupJob {
-	pub fn from_arg_matches(matches: &ArgMatches) -> Result<WarmupJob, String> {
-		let out = matches.value_of("out_directory").unwrap_or(".").to_string(); 
+	pub fn set_name(&mut self, name: String) {
+		self.name = Some(name);
+	}
 
-		let platform_str = Self::get_platform_query(&matches);
-		let opt_platform = ClRoot::get_platform(&platform_str);
+	pub fn from_decoder(decoder: Box<&JobDecoder>) -> Result<WarmupJob, String> {
+		let out = decoder.get_output();
+
+		let platform_query = decoder.get_platform_query();
+		let opt_platform = ClRoot::get_platform(&platform_query);
+
 		if opt_platform.is_none() {
-			return Err(format!("No platform found with query: {:?}", platform_str));
+			return Err(format!("No platform found with query: {:?}", platform_query));
 		}
 
 		let platform = opt_platform.unwrap();
-
-		let devices_query = Self::get_device_query(&matches);
+		let devices_query = decoder.get_device_query();
 		let devices = platform.get_devices_query(&devices_query);
 		if devices.len() == 0 {
 			return Err(format!("No devices found with query: {:?}", devices_query));
@@ -71,14 +335,16 @@ impl WarmupJob {
 		let context = Context::from_devices(&devices);
 
 		let job = WarmupJob {
-			src: matches.value_of("src_directory").unwrap().to_string(),
-			options: "".to_string(),
+			src: decoder.get_input(),
+			options: decoder.get_options(),
 			devices: devices,
 			context: context,
-			extension: matches.value_of("extension").unwrap_or("cl").to_string(),
-			recursive: matches.is_present("recursive"),
-			verbose: matches.occurrences_of("verbosity"),
+			extension: decoder.get_extension(),
+			recursive: decoder.get_recursive(),
+			verbose: decoder.get_verbose(),
 			cache: Cache::new(Box::new(FileSystemCache::new(out).unwrap())),
+			tagged: decoder.get_tag(),
+			name: None,
 		};
 
 		Ok(job)
@@ -163,61 +429,5 @@ impl WarmupJob {
 	    }
 
 	    Ok(())
-	}
-
-	fn get_device_query(matches: &ArgMatches) -> DeviceQuery {
-		let arg_present = (
-			matches.is_present("device_type"),
-			matches.is_present("device_index"),
-			matches.is_present("device_regexp"),
-		);
-
-		let dq = match arg_present {
-			(true, _, _) => {
-				let dtype = matches.value_of("device_type").unwrap();
-
-				let device_type = match dtype {
-					"cpu" => DeviceType::CPU,
-					"gpu" => DeviceType::GPU,
-					"all" | _ => DeviceType::All,
-				};
-
-				 DeviceQuery::Type(device_type)
-			},
-			(_, true, _) => {
-				let str_index = matches.value_of("device_index").unwrap();
-				let index =  match str_index.parse::<usize>() {
-					Err(_) => {
-						println!("'device_index' not numeric: Using index 0");
-						0
-					},
-					Ok(i) => i,
-				};
-
-				DeviceQuery::Index(index)
-			},
-			(_, _, true) => {
-				let regex = Regex::new(matches.value_of("device_regexp").unwrap()).unwrap();
-				DeviceQuery::Regexp(regex.clone())
-			},
-			_ => DeviceQuery::Type(DeviceType::All),
-		};
-
-		dq
-	}
-
-	fn get_platform_query(matches: &ArgMatches) -> PlatformQuery {
-		let platform_str = matches.value_of("platform").unwrap_or("0");
-		let x = platform_str.parse::<usize>();
-
-		match x {
-			Err(_) => {
-				let regex = Regex::new(platform_str).unwrap();
-				PlatformQuery::Regexp(regex.clone())
-			},
-			Ok(x) => {
-				PlatformQuery::Index(x)
-			}
-		}
 	}
 }

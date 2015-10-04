@@ -11,6 +11,7 @@ rust-crypto = "*"
 libc = "*"
 ansi_term = "*"
 regex = "0.1.41"
+yaml-rust = "*"
 
 [dependencies.clap]
 features = ["yaml"]
