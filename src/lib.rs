@@ -54,7 +54,12 @@ impl CacheContainer {
 pub extern "C" fn cl_cache_create_fs(path: *const libc::c_char) -> i32 {
 	// Put a mutex here
 	let path = unsafe {CStr::from_ptr(path).to_string_lossy().into_owned()};
-	let backend = Box::new(FileSystemCache::new(path.to_string()).unwrap());
+	let fs_cache = FileSystemCache::new(path.to_string());
+	if fs_cache.is_none() {
+		return -1;
+	}
+
+	let backend = Box::new(fs_cache.unwrap());
 	let cache = Cache::new(backend);
 
 	add_cache(RefCell::new(cache))
@@ -69,8 +74,19 @@ pub extern "C" fn cl_cache_get(
 	context: *const libc::c_void
 ) -> *mut cl_program
 {
-	let source_cstr = unsafe{ CStr::from_ptr(source).to_str().unwrap() };
-	let cache = get_cache(cache_id as usize).unwrap();
+	let source_str = unsafe{ CStr::from_ptr(source).to_str() };
+	if source_str.is_err() {
+		return ptr::null_mut();
+	}
+
+	let source_cstr = source_str.unwrap();
+	
+	let cache_result = get_cache(cache_id as usize);
+	if cache_result.is_none() {
+		return ptr::null_mut();
+	}
+	let cache = cache_result.unwrap();
+
 	let devices_vec = get_devices_vector(num_devices, devices);
 	let context = Context::from_id(context as cl_context);
 
@@ -92,8 +108,17 @@ pub extern "C" fn cl_cache_get_with_tag(
 	context: *const libc::c_void
 ) -> *mut cl_program
 {
-	let tag_cstr = unsafe{ CStr::from_ptr(tag).to_str().unwrap() };
-	let cache = get_cache(cache_id as usize).unwrap();
+	let tag_str = unsafe{ CStr::from_ptr(tag).to_str() };
+	if tag_str.is_err() {
+		return ptr::null_mut();
+	}
+
+	let tag_cstr = tag_str.unwrap();
+	let cache_result = get_cache(cache_id as usize);
+	if cache_result.is_none() {
+		return ptr::null_mut();
+	}
+	let cache = cache_result.unwrap();
 	let devices_vec = get_devices_vector(num_devices, devices);
 	let context = Context::from_id(context as cl_context);
 
@@ -115,9 +140,19 @@ pub extern "C" fn cl_cache_put_with_tag(
 	program: *const libc::c_void
 ) -> i32
 {
-	let tag_cstr = unsafe{ CStr::from_ptr(tag).to_str().unwrap() };
-	println!("Tag: {:?}", tag_cstr);
-	let cache = get_cache(cache_id as usize).unwrap();
+	let tag_str = unsafe{ CStr::from_ptr(tag).to_str() };
+	if tag_str.is_err() {
+		return 0;
+	}
+
+	let tag_cstr = tag_str.unwrap();
+	
+	let cache_result = get_cache(cache_id as usize);
+	if cache_result.is_none() {
+		return 0;
+	}
+	let cache = cache_result.unwrap();
+
 	let devices_vec = get_devices_vector(num_devices, devices);
 	let program = Program::from_cl_program(program as cl_program);
 
@@ -144,8 +179,18 @@ pub extern "C" fn cl_cache_get_with_options(
 	options: *const libc::c_char
 ) -> *mut cl_program
 {
-	let source_cstr = unsafe{ CStr::from_ptr(source).to_str().unwrap() };
-	let options_cstr = unsafe{ CStr::from_ptr(options).to_str().unwrap() };
+	let source_str = unsafe{ CStr::from_ptr(source).to_str() };
+	if source_str.is_err() {
+		return ptr::null_mut();
+	}
+	let source_cstr = source_str.unwrap();
+
+	let option_str = unsafe{ CStr::from_ptr(options).to_str() };
+	if option_str.is_err() {
+		return ptr::null_mut();
+	}
+	let options_cstr = option_str.unwrap();
+
 	let cache = get_cache(cache_id as usize).unwrap();
 	
 	let context = Context::from_id(context as cl_context);
@@ -198,10 +243,4 @@ fn get_cache<'a>(index: usize) -> Option<Arc<RefCell<Cache>>> {
 
 		caches.get(index as u32)
 	})
-}
-
-#[cfg(test)]
-mod test {
-	use super::*;
-	use std::ffi::CString;
 }
