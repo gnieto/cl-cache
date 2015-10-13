@@ -14,6 +14,11 @@ pub struct Context {
 
 impl Context {
 	pub fn from_id(id: cl_context) -> Context {
+		unsafe {
+			// Increase ref-count to be able to implement Drop
+			clRetainContext(id);
+		}
+
 		Context {
 			ctx: id,
 		}

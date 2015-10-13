@@ -20,6 +20,11 @@ pub struct RawBuffer {
 
 impl RawBuffer {
 	pub fn from_id(buffer: cl_mem) -> RawBuffer {
+		unsafe {
+			// Increase ref-count to be able to implement Drop
+			clRetainMemObject(buffer);
+		}
+
 		RawBuffer {
 			buffer: buffer,
 		}

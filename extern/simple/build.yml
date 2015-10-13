@@ -1,0 +1,10 @@
+jobs:
+    - example:
+        source: kernel.cl
+        output: /tmp/test
+        recursive: true
+        extension: cl
+        device_regex: ".*"
+        platform_index: 0
+        tag: tag_test
+        verbose: 0

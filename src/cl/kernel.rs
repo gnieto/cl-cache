@@ -23,6 +23,11 @@ impl Drop for Kernel {
 
 impl Kernel {
 	pub fn from_id(kernel: cl_kernel) -> Kernel {
+		unsafe {
+			// Increase ref-count to be able to implement Drop
+			clRetainKernel(kernel);
+		}
+
 		Kernel {
 			kernel: kernel,
 		}

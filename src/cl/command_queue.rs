@@ -17,6 +17,11 @@ pub struct CommandQueue {
 
 impl CommandQueue {
 	pub fn from_command_queue_id(queue_id: cl_command_queue) -> CommandQueue {
+		unsafe {
+			// Increase ref-count to be able to implement Drop
+			clRetainCommandQueue(queue_id);
+		}
+
 		CommandQueue {
 			queue: queue_id,
 		}
@@ -70,7 +75,6 @@ impl CommandQueue {
 	pub fn read<T>(&self, buffer: &OutputBuffer<T>) -> Result<Vec<T>, OpenClError> where T: Clone + Default {
 		let mut result : Vec<T> = repeat(Default::default()).take(buffer.len() as usize).collect();
 		
-		println!("Size: {}", buffer.get_buffer_size());
 		unsafe {
 			let status = clEnqueueReadBuffer(
 				self.get_id(),

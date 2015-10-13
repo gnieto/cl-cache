@@ -28,6 +28,11 @@ impl Drop for Program
 
 impl Program {
     pub fn from_cl_program(prg: cl_program) -> Program {
+        unsafe {
+            // Increase ref-count to be able to implement Drop
+            clRetainProgram(prg);
+        }
+
         Program {
         	prg: prg,
         }

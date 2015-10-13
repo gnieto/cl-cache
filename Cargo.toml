@@ -3,6 +3,10 @@ name = "clcache"
 version = "0.1.0"
 authors = ["gnieto <gnieto.talo@gmail.com>"]
 
+[lib]
+name = "clcache"
+crate-type = ["staticlib", "rlib"]
+
 [dependencies.opencl]
 git = "https://github.com/luqmana/rust-opencl"
 
