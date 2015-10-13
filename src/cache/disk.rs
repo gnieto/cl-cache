@@ -57,7 +57,13 @@ impl CacheBackend for FileSystemCache {
 
     fn put(&mut self, key: &String, payload: &Vec<u8>) {
     	let final_path = self.get_path(&key);
-    	let mut f = File::create(final_path).unwrap();
+    	let file_descriptor = File::create(final_path);
+
+        if file_descriptor.is_err() {
+            return;
+        }
+
+        let mut f = file_descriptor.unwrap();
     	f.write_all(payload).unwrap();
     }
 }

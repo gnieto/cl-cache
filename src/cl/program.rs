@@ -39,7 +39,7 @@ impl Program {
     }
 
     pub fn from_source(ctx: &Context, src: &str) -> Result<Program, OpenClError> {
-    	let src = CString::new(src).unwrap();
+    	let src = try!{CString::new(src)};
 		let mut status: cl_int = 0;
 
 		unsafe {

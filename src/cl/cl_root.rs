@@ -21,13 +21,13 @@ impl ClRoot {
 	}
 
 	fn platform_from_index(index: usize) -> Option<Rc<Platform>> {
-		let platforms = Self::get_platforms().unwrap();
+		let platforms = Self::get_platforms().unwrap_or(Vec::new());
 
 		Self::platform_from_idx(&platforms, index)
 	}
 
 	fn platform_from_regexp(regex: &Regex) -> Option<Rc<Platform>> {
-		let platforms = Self::get_platforms().unwrap();
+		let platforms = Self::get_platforms().unwrap_or(Vec::new());
 
 		let index = platforms.iter().position(|ref x| regex.is_match(&x.name()));
 

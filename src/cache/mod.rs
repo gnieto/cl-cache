@@ -49,7 +49,7 @@ impl Cache {
     }
 
     pub fn put_with_tag(&mut self, tag: &str, devices: &Vec<Rc<Device>>, program: &Program) -> Result<(), CacheError> {
-        let binaries = program.get_binaries().unwrap();
+        let binaries = try!{program.get_binaries()};
         for (idx, b) in binaries.iter().enumerate() {
             if b.len() == 0 {
                 return Err(CacheError::NeedBinaryProgram(devices[idx].clone()))
@@ -153,7 +153,11 @@ impl Cache {
         let mut log_map: HashMap<Rc<Device>, String> = HashMap::new();
 
         for device in devices {
-            log_map.insert(device.clone(), program.get_log(&device).unwrap());
+            let log_result = program.get_log(&device);
+
+            if log_result.is_ok() {
+                log_map.insert(device.clone(), log_result.unwrap());
+            }
         }
 
         log_map
@@ -206,11 +210,14 @@ impl DefaultHasher {
 impl KeyHasher for DefaultHasher {
     fn get_key(&mut self, device: &Device, source: &String, options: &String) -> String {
         self.digester.reset();
-        let device_name = device.get_name().unwrap();
-        let platform_id = device.get_platform_id().unwrap();
-        let platform = Platform::from_platform_id(platform_id);
-        let platform_name = platform.name();
-        let platform_version = platform.version();
+        let device_name = device.get_name().unwrap_or("Unknown".to_string());
+        let (platform_name, platform_version) = match device.get_platform_id() {
+            Err(_) => ("Unknown".to_string(), "Unknown".to_string()),
+            Ok(platform_id) => {
+                let platform = Platform::from_platform_id(platform_id);
+                (platform.name(), platform.version())
+            }
+        };
         let content_to_hash = source.clone() + &(*device_name) + &(*platform_name) + &(*platform_version) + &options;
         self.digester.input_str(&content_to_hash);
 
@@ -219,11 +226,14 @@ impl KeyHasher for DefaultHasher {
 
     fn get_tag_key(&mut self, device: &Device, tag: &str) -> String {
         self.digester.reset();
-        let device_name = device.get_name().unwrap();
-        let platform_id = device.get_platform_id().unwrap();
-        let platform = Platform::from_platform_id(platform_id);
-        let platform_name = platform.name();
-        let platform_version = platform.version();
+        let device_name = device.get_name().unwrap_or("Unknown".to_string());
+        let (platform_name, platform_version) = match device.get_platform_id() {
+            Err(_) => ("Unknown".to_string(), "Unknown".to_string()),
+            Ok(platform_id) => {
+                let platform = Platform::from_platform_id(platform_id);
+                (platform.name(), platform.version())
+            }
+        };
         let content_to_hash = "".to_string() + &(*device_name) + &(*platform_name) + &(*platform_version);
         self.digester.input_str(&content_to_hash);
 

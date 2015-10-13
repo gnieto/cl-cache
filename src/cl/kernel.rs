@@ -39,7 +39,7 @@ impl Kernel {
 
 	pub fn create(program: &Program, kernel_name: &str) -> Result<Kernel, OpenClError> {
 		unsafe {
-			let kernel_name = CString::new(kernel_name).unwrap();
+			let kernel_name = try!{CString::new(kernel_name)};
 			let mut status = 0;
 
 			let kernel = clCreateKernel(

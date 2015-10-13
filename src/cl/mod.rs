@@ -9,6 +9,7 @@ pub mod cl_root;
 
 use opencl::cl::*;
 use std::fmt::{Display, Formatter, Result};
+use std::ffi::{NulError};
 
 #[derive(Debug)]
 pub struct OpenClError {
@@ -39,4 +40,13 @@ impl Display for OpenClError {
 			Some(err_code) => write!(f, "(HR: {}, CL err code: {})", self.human_error, err_code as i64)
 		}
     }	
+}
+
+impl From<NulError> for OpenClError {
+	fn from(_: NulError) -> OpenClError {
+		OpenClError {
+			human_error: "Could not convert string to C string".to_string(),
+			error_code: None,
+		}
+	}
 }

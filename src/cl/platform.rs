@@ -59,7 +59,7 @@ impl Platform {
                 let mut out_devices = Vec::new();
 
                 for d in all_devices.iter() {
-                    if regex.is_match(&d.get_name().unwrap()) {
+                    if regex.is_match(&d.get_name().unwrap_or("".to_string())) {
                         out_devices.push(d.clone());
                     }
                 }
@@ -123,27 +123,27 @@ impl Platform {
 
     pub fn name(&self) -> String
     {
-        self.profile_info(CL_PLATFORM_NAME).unwrap()
+        self.profile_info(CL_PLATFORM_NAME).unwrap_or("Unknwon".to_string())
     }
 
     pub fn version(&self) -> String
     {
-        self.profile_info(CL_PLATFORM_VERSION).unwrap()
+        self.profile_info(CL_PLATFORM_VERSION).unwrap_or("Unknwon".to_string())
     }
 
     pub fn profile(&self) -> String
     {
-        self.profile_info(CL_PLATFORM_PROFILE).unwrap()
+        self.profile_info(CL_PLATFORM_PROFILE).unwrap_or("Unknwon".to_string())
     }
 
     pub fn vendor(&self) -> String
     {
-        self.profile_info(CL_PLATFORM_VENDOR).unwrap()
+        self.profile_info(CL_PLATFORM_VENDOR).unwrap_or("Unknwon".to_string())
     }
 
     pub fn extensions(&self) -> String
     {
-        self.profile_info(CL_PLATFORM_EXTENSIONS).unwrap()
+        self.profile_info(CL_PLATFORM_EXTENSIONS).unwrap_or("Unknwon".to_string())
     }
 
     fn get_devices_internal(&self, dtype: cl_device_type) -> Vec<Rc<Device>>
