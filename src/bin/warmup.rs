@@ -27,6 +27,7 @@ use std::io;
 use std::result::Result;
 use std::path::*;
 use yaml_rust::{YamlLoader, Yaml};
+use std::rc::Rc;
 
 use ansi_term::Colour::*;
 
@@ -120,7 +121,7 @@ fn load_from_yaml(file: &str) -> Result<Vec<WarmupJob>, String> {
 struct WarmupJob {
 	src: String,
 	options: String,
-	devices: Vec<Device>,
+	devices: Vec<Rc<Device>>,
 	context: Context,
 	recursive: bool,
 	extension: String,

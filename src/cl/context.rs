@@ -5,6 +5,7 @@ use std::mem;
 use std::ptr;
 use libc;
 use std::ops::Drop;
+use std::rc::Rc;
 
 #[derive(Debug)]
 pub struct Context {
@@ -12,14 +13,21 @@ pub struct Context {
 }
 
 impl Context {
-	pub fn from_devices(devices: &Vec<Device>) -> Context {
+	pub fn from_id(id: cl_context) -> Context {
+		Context {
+			ctx: id,
+		}
+	}
+
+	pub fn from_devices(devices: &Vec<Rc<Device>>) -> Context {
 		unsafe {
 			let mut errcode = 0;
+			let raw_devices: Vec<cl_device_id> = devices.iter().map(|x| {x.get_id()}).collect();
 
 			let ctx = clCreateContext(
 				ptr::null(),
-				devices.len() as u32,
-				devices.as_ptr() as *const *mut libc::c_void,
+				raw_devices.len() as u32,
+				raw_devices.as_ptr() as *const *mut libc::c_void,
 				mem::transmute(ptr::null::<fn()>()),
 				ptr::null_mut(),
 				&mut errcode

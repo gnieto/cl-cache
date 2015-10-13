@@ -10,7 +10,7 @@ jobs:
         platform_regex: AMD
         platform_index: 0
         options: -Dtest=22
-        verbose: 2
+        verbose: 0
     - amd_samples2:
         source: /opt/AMDAPP/samples/opencl/cl/
         output: /tmp/demo2
@@ -21,7 +21,7 @@ jobs:
         device_regex: Oland
         platform_index: 0
         options: -Dtest=22
-        verbose: 1
+        verbose: 0
     - tagged:
         source: /opt/AMDAPP/samples/opencl/cl/HelloWorld/HelloWorld_Kernel.cl
         output: .
@@ -32,4 +32,4 @@ jobs:
         device_regex: Oland
         platform_index: 0
         tag: HelloWorld_slow
-        verbose: 1
+        verbose: 0b

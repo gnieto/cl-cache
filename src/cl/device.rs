@@ -8,7 +8,7 @@ use std::cmp::Eq;
 use cl::OpenClError;
 use std::mem;
 
-#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[derive(Debug, Hash, Eq, PartialEq)]
 pub struct Device {
     id: cl_device_id,
 }

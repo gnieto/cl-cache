@@ -9,6 +9,7 @@ use cl::OpenClError;
 use std::collections::HashMap;
 use crypto::digest::Digest;
 use crypto::sha2::Sha256;
+use std::rc::Rc;
 
 pub struct Cache {
     backend: Box<CacheBackend>,
@@ -23,11 +24,11 @@ impl Cache {
         }
     }
 
-    pub fn get(&mut self, source: &str, devices: &Vec<Device>, ctx: &Context) -> Result<Program, CacheError> {
+    pub fn get(&mut self, source: &str, devices: &Vec<Rc<Device>>, ctx: &Context) -> Result<Program, CacheError> {
         self.get_with_options(&source, &devices, &ctx, "")
     }
 
-    pub fn get_with_tag(&mut self, tag: &str, devices: &Vec<Device>, ctx: &Context) -> Result<Program, CacheError> {
+    pub fn get_with_tag(&mut self, tag: &str, devices: &Vec<Rc<Device>>, ctx: &Context) -> Result<Program, CacheError> {
         let mut binaries: Vec<Vec<u8>> = Vec::new();
 
         for device in devices {
@@ -47,7 +48,7 @@ impl Cache {
         self.get_program_from_binaries(&ctx, &devices, &binaries)
     }
 
-    pub fn put_with_tag(&mut self, tag: &str, devices: &Vec<Device>, program: &Program) -> Result<(), CacheError> {
+    pub fn put_with_tag(&mut self, tag: &str, devices: &Vec<Rc<Device>>, program: &Program) -> Result<(), CacheError> {
         let binaries = program.get_binaries().unwrap();
         for (idx, b) in binaries.iter().enumerate() {
             if b.len() == 0 {
@@ -65,11 +66,11 @@ impl Cache {
         Ok(())
     }
 
-    pub fn get_with_options(&mut self, source: &str, devices: &Vec<Device>, ctx: &Context, options: &str) -> Result<Program, CacheError> {
+    pub fn get_with_options(&mut self, source: &str, devices: &Vec<Rc<Device>>, ctx: &Context, options: &str) -> Result<Program, CacheError> {
         // TODO: Avoid all this clones by creating smarter data structures
         // The code is copying a lot of times the buffers with the binaries
         let source_str = source.to_string();
-        let mut binaries_hash: HashMap<Device, Vec<u8>>  = HashMap::new();
+        let mut binaries_hash: HashMap<Rc<Device>, Vec<u8>>  = HashMap::new();
         let mut non_build_devices = Vec::new();
         let mut keys = Vec::new();
 
@@ -103,7 +104,7 @@ impl Cache {
         self.get_program_from_binaries(&ctx, &devices, &final_binaries)
     }
 
-    fn get_program_from_binaries(&self, ctx: &Context, devices: &Vec<Device>, binaries: &Vec<Vec<u8>>) -> Result<Program, CacheError> {
+    fn get_program_from_binaries(&self, ctx: &Context, devices: &Vec<Rc<Device>>, binaries: &Vec<Vec<u8>>) -> Result<Program, CacheError> {
         let program = Program::from_binary(ctx, devices, &binaries);
         match program  {
             Err(cl_error) => {
@@ -121,7 +122,7 @@ impl Cache {
         }
     }
 
-    fn compile_program(&mut self, binaries_hash: &mut HashMap<Device, Vec<u8>>, source: &str, options: &str, ctx: &Context, devices: &Vec<Device>, keys: &Vec<String>) -> Result<(), CacheError> {
+    fn compile_program(&mut self, binaries_hash: &mut HashMap<Rc<Device>, Vec<u8>>, source: &str, options: &str, ctx: &Context, devices: &Vec<Rc<Device>>, keys: &Vec<String>) -> Result<(), CacheError> {
         let program = try!{Program::from_source(ctx, source)};
         let build_result = if options.len() > 0 {
             program.build_with_options(&devices, &options)
@@ -148,8 +149,8 @@ impl Cache {
         Ok(())
     }
 
-    fn get_build_logs(&self, program: &Program, devices: &Vec<Device>) -> HashMap<Device, String> {
-        let mut log_map: HashMap<Device, String> = HashMap::new();
+    fn get_build_logs(&self, program: &Program, devices: &Vec<Rc<Device>>) -> HashMap<Rc<Device>, String> {
+        let mut log_map: HashMap<Rc<Device>, String> = HashMap::new();
 
         for device in devices {
             log_map.insert(device.clone(), program.get_log(&device).unwrap());
@@ -158,7 +159,7 @@ impl Cache {
         log_map
     }
 
-    fn build_cache_key(&mut self, device: &Device, source: &String, options: &String) -> String {
+    fn build_cache_key(&mut self, device: &Rc<Device>, source: &String, options: &String) -> String {
         let key = self.key_hasher.get_key(&device, &source, &options);
 
         key
@@ -167,10 +168,10 @@ impl Cache {
 
 #[derive(Debug)]
 pub enum CacheError {
-    ClBuildError(HashMap<Device, String>),
+    ClBuildError(HashMap<Rc<Device>, String>),
     ClError(OpenClError),
-    NotAllBinariesLoaded(Vec<Device>),
-    NeedBinaryProgram(Device),
+    NotAllBinariesLoaded(Vec<Rc<Device>>),
+    NeedBinaryProgram(Rc<Device>),
     CacheError,
 }
 
@@ -239,6 +240,7 @@ pub mod test {
     use cache::volatile::Volatile;
     use cl::cl_root::*;
     use cl::platform::*;
+    use std::rc::Rc;
 
     struct DummyCacheBackend;
 
@@ -358,7 +360,7 @@ pub mod test {
         }";
     }
 
-    fn get_context() -> (Context, Vec<Device>) {
+    fn get_context() -> (Context, Vec<Rc<Device>>) {
         let pq = PlatformQuery::Index(0);
         let platform = ClRoot::get_platform(&pq).unwrap();
 
@@ -366,6 +368,6 @@ pub mod test {
         let devices = platform.get_devices_query(&dq);
 
         // TODO: Avoid this clones
-        (Context::from_devices(&devices), devices.clone())
+        (Context::from_devices(&devices), devices)
     }
 }

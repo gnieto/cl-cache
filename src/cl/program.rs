@@ -10,6 +10,7 @@ use libc;
 use std::iter::repeat;
 use cl::OpenClError;
 use std::ops::Drop;
+use std::rc::Rc;
 
 #[derive(Debug)]
 pub struct Program {
@@ -53,7 +54,7 @@ impl Program {
 		}
     }
 
-    pub fn from_binary(ctx: &Context, devices: &Vec<Device>, binaries: &Vec<Vec<u8>>) -> Result<Program, OpenClError> {
+    pub fn from_binary(ctx: &Context, devices: &Vec<Rc<Device>>, binaries: &Vec<Vec<u8>>) -> Result<Program, OpenClError> {
     	if devices.len() == 0 {
     		return Err(OpenClError::from_string("Can't create program without devices".to_string()));
     	}
@@ -90,11 +91,11 @@ impl Program {
     	self.prg
     }
 
-    pub fn build(&self, devices: &Vec<Device>) -> Result<(), OpenClError> {
+    pub fn build(&self, devices: &Vec<Rc<Device>>) -> Result<(), OpenClError> {
     	self.build_with_options(devices, "")
     }
 
-    pub fn build_with_options(&self, devices: &Vec<Device>, options: &str) -> Result<(), OpenClError> {
+    pub fn build_with_options(&self, devices: &Vec<Rc<Device>>, options: &str) -> Result<(), OpenClError> {
     	unsafe
 		{
 			let option_ptr = if options.len() > 0 {
@@ -102,12 +103,13 @@ impl Program {
 			} else {
 				ptr::null()
 			};
-			
+
+            let raw_devices: Vec<cl_device_id> = devices.iter().map(|x| {x.get_id()}).collect();
 
 			let ret = clBuildProgram(
 				self.prg,
-				devices.len() as u32,
-				devices.as_ptr() as *const *mut libc::c_void,
+				raw_devices.len() as u32,
+				raw_devices.as_ptr() as *const *mut libc::c_void,
 				option_ptr,
 				mem::transmute(ptr::null::<fn()>()),
 				ptr::null_mut()
@@ -220,7 +222,7 @@ impl Program {
     	Ok(source)
     }
 
-    pub fn get_devices(&self) -> Result<Vec<Device>, OpenClError> {
+    pub fn get_devices(&self) -> Result<Vec<Rc<Device>>, OpenClError> {
     	let num_devices = self.get_num_devices();
 
     	unsafe {
@@ -242,9 +244,9 @@ impl Program {
     			return Err(OpenClError::new("Could not get program devices".to_string(), errcode));
     		}
 
-    		let devices : Vec<Device> = raw_devices.
+    		let devices : Vec<Rc<Device>> = raw_devices.
 				iter().
-				map(|x| Device::from_device_id(*x)).
+				map(|x| Rc::new(Device::from_device_id(*x))).
 				collect();
 
 			Ok(devices)

@@ -7,6 +7,7 @@ use libc;
 use cl::OpenClError;
 use opencl::cl::CLStatus::*;
 use regex::Regex;
+use std::rc::Rc;
 
 // Almost copy of the platfrom from opencl_rust
 
@@ -44,7 +45,7 @@ impl Platform {
         Platform { id: id }
     }
 
-    pub fn get_devices_query(&self, query: &DeviceQuery) -> Vec<Device> {
+    pub fn get_devices_query(&self, query: &DeviceQuery) -> Vec<Rc<Device>> {
         match *query {
             DeviceQuery::Index(i) => {
                 let all_devices = self.get_devices();
@@ -71,7 +72,7 @@ impl Platform {
         }
     }
 
-    pub fn get_devices(&self) -> Vec<Device>
+    pub fn get_devices(&self) -> Vec<Rc<Device>>
     {
         self.get_devices_internal(CL_DEVICE_TYPE_ALL)
     }
@@ -145,7 +146,7 @@ impl Platform {
         self.profile_info(CL_PLATFORM_EXTENSIONS).unwrap()
     }
 
-    fn get_devices_internal(&self, dtype: cl_device_type) -> Vec<Device>
+    fn get_devices_internal(&self, dtype: cl_device_type) -> Vec<Rc<Device>>
     {
         unsafe
         {
@@ -158,7 +159,7 @@ impl Platform {
                 .take(num_devices as usize).collect();
             clGetDeviceIDs(self.id, dtype, ids.len() as cl_uint,
                            ids.as_mut_ptr(), (&mut num_devices));
-            ids.iter().map(|id| { Device::from_device_id(*id) }).collect()
+            ids.iter().map(|id| { Rc::new(Device::from_device_id(*id)) }).collect()
         }
     }
 }

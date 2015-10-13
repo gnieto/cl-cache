@@ -9,6 +9,7 @@ use clcache::cl::cl_root::*;
 use clcache::cl::command_queue::CommandQueue;
 use clcache::cl::kernel::*;
 use clcache::cl::buffer::{InputBuffer, OutputBuffer};
+use std::rc::Rc;
 
 pub fn main() {
 	let mut cache = Cache::new(Box::new(FileSystemCache::new("/tmp/test_demo1/".to_string()).unwrap()));
@@ -56,7 +57,7 @@ pub fn get_demo_code() -> &'static str {
     }"
 }
 
-fn get_context() -> (Context, Vec<Device>) {
+fn get_context() -> (Context, Vec<Rc<Device>>) {
 	let pq = PlatformQuery::Index(0);
     let platform = ClRoot::get_platform(&pq).unwrap();
 
