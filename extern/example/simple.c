@@ -1,11 +1,4 @@
-#include <fcntl.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <math.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 
 #ifdef __APPLE__
     #include "OpenCL/opencl.h"
@@ -15,6 +8,11 @@
 #include "cl_cache.h"
 
 #define DATA_SIZE (1024)
+
+char* source = "__kernel void vector_add(__global const long *A, __global const long *B, __global long *C) { \
+    int i = get_global_id(0); \
+    C[i] = A[i] + B[i]; \
+}";
 
 cl_device_id* get_devices(cl_platform_id platform, cl_uint num_devices);
 cl_uint get_num_devices(cl_platform_id platform);
@@ -56,7 +54,7 @@ int main(int argc, char** argv)
         exit(1);
     }
 
-    program = cl_cache_get_with_tag(cache, "tag_test", 1, &device_id, context);
+    program = cl_cache_get_with_options(cache, (char*) source, 1, &device_id, context, "");
     if (program == NULL) {
         printf("Could not get program with tag!!\n");
         exit(1);
