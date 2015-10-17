@@ -20,7 +20,7 @@ impl Device {
         }
     }
 
-    pub fn get_name(&self) -> Option<String> {
+    pub fn get_name(&self) -> Result<String, OpenClError> {
 		self.profile_info(CL_DEVICE_NAME)
     }
 
@@ -53,7 +53,7 @@ impl Device {
 		}
     }
 
-    fn profile_info(&self, name: cl_device_info) -> Option<String>
+    fn profile_info(&self, name: cl_device_info) -> Result<String, OpenClError>
 	{
 		unsafe {
 			let mut size = 0 as libc::size_t;
@@ -66,7 +66,7 @@ impl Device {
 			);
 
 			if status != CL_SUCCESS as cl_int {
-				return None;
+				return Err(OpenClError::new("Could not get parameter size".to_string(), status));
 			}
 
 			let mut buf : Vec<u8> = repeat(0u8).take(size as usize).collect();
@@ -80,10 +80,10 @@ impl Device {
 			);
 
 			if status != CL_SUCCESS as cl_int {
-				return None;
+				return Err(OpenClError::new("Could not get parameter".to_string(), status));
 			}
 
-			Some(String::from_utf8_unchecked(buf))
+			Ok(String::from_utf8_unchecked(buf))
 		}
 	}
 

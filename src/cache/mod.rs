@@ -32,7 +32,7 @@ impl Cache {
         let mut binaries: Vec<Vec<u8>> = Vec::new();
 
         for device in devices {
-            let key = self.key_hasher.get_tag_key(&device, &tag);
+            let key = try!{self.key_hasher.get_tag_key(&device, &tag)};
             let cache_result = self.backend.get(&key);
 
             match cache_result {
@@ -58,7 +58,7 @@ impl Cache {
 
         for (idx, d) in devices.iter().enumerate() {
             self.backend.put(
-                &self.key_hasher.get_tag_key(&d, &tag),
+                &try!{self.key_hasher.get_tag_key(&d, &tag)},
                 &binaries[idx]
             );
         }
@@ -75,7 +75,7 @@ impl Cache {
         let mut keys = Vec::new();
 
         for device in devices {
-            let key = self.build_cache_key(&device, &source_str, &options.to_string());
+            let key = try!{self.key_hasher.get_key(&device, &source_str, &options.to_string())};
 
             let cache_result = self.backend.get(&key);
             match cache_result {
@@ -90,10 +90,7 @@ impl Cache {
         }
 
         if non_build_devices.len() > 0 {
-            let compilation_result = self.compile_program(&mut binaries_hash, &source, &options, &ctx, &non_build_devices, &keys);
-            if compilation_result.is_err() {
-                return Err(compilation_result.err().unwrap());
-            }
+            try!{self.compile_program(&mut binaries_hash, &source, &options, &ctx, &non_build_devices, &keys)};
         }
 
         let mut final_binaries = Vec::new();
@@ -112,12 +109,8 @@ impl Cache {
                 Err(CacheError::ClError(cl_error))
             },
             Ok(p) => {
-                let build_result = p.build(&devices);
-                if build_result.is_err() {
-                    Err(CacheError::ClError(build_result.err().unwrap()))
-                } else {
-                    Ok(p)
-                }
+                try!{p.build(&devices)};
+                Ok(p)
             }
         }
     }
@@ -153,20 +146,12 @@ impl Cache {
         let mut log_map: HashMap<Rc<Device>, String> = HashMap::new();
 
         for device in devices {
-            let log_result = program.get_log(&device);
-
-            if log_result.is_ok() {
-                log_map.insert(device.clone(), log_result.unwrap());
+            if let Ok(log) = program.get_log(&device) {
+                log_map.insert(device.clone(), log);
             }
         }
 
         log_map
-    }
-
-    fn build_cache_key(&mut self, device: &Rc<Device>, source: &String, options: &String) -> String {
-        let key = self.key_hasher.get_key(&device, &source, &options);
-
-        key
     }
 }
 
@@ -191,8 +176,8 @@ pub trait CacheBackend {
 }
 
 pub trait KeyHasher {
-    fn get_key(&mut self, device: &Device, source: &String, options: &String) -> String;
-    fn get_tag_key(&mut self, device: &Device, tag: &str) -> String;
+    fn get_key(&mut self, device: &Device, source: &String, options: &String) -> Result<String, CacheError>;
+    fn get_tag_key(&mut self, device: &Device, tag: &str) -> Result<String, CacheError>;
 }
 
 pub struct DefaultHasher {
@@ -208,36 +193,30 @@ impl DefaultHasher {
 }
 
 impl KeyHasher for DefaultHasher {
-    fn get_key(&mut self, device: &Device, source: &String, options: &String) -> String {
+    fn get_key(&mut self, device: &Device, source: &String, options: &String) -> Result<String, CacheError> {
         self.digester.reset();
-        let device_name = device.get_name().unwrap_or("Unknown".to_string());
-        let (platform_name, platform_version) = match device.get_platform_id() {
-            Err(_) => ("Unknown".to_string(), "Unknown".to_string()),
-            Ok(platform_id) => {
-                let platform = Platform::from_platform_id(platform_id);
-                (platform.name(), platform.version())
-            }
-        };
+        let device_name = try!{device.get_name()};
+        let platform_id = try!{device.get_platform_id()};
+        let platform = Platform::from_platform_id(platform_id);
+        let platform_name = platform.name();
+        let platform_version = platform.version();
         let content_to_hash = source.clone() + &(*device_name) + &(*platform_name) + &(*platform_version) + &options;
         self.digester.input_str(&content_to_hash);
 
-        self.digester.result_str()
+        Ok(self.digester.result_str())
     }
 
-    fn get_tag_key(&mut self, device: &Device, tag: &str) -> String {
+    fn get_tag_key(&mut self, device: &Device, tag: &str) -> Result<String, CacheError> {
         self.digester.reset();
-        let device_name = device.get_name().unwrap_or("Unknown".to_string());
-        let (platform_name, platform_version) = match device.get_platform_id() {
-            Err(_) => ("Unknown".to_string(), "Unknown".to_string()),
-            Ok(platform_id) => {
-                let platform = Platform::from_platform_id(platform_id);
-                (platform.name(), platform.version())
-            }
-        };
+        let device_name = try!{device.get_name()};
+        let platform_id = try!{device.get_platform_id()};
+        let platform = Platform::from_platform_id(platform_id);
+        let platform_name = platform.name();
+        let platform_version = platform.version();
         let content_to_hash = "".to_string() + &(*device_name) + &(*platform_name) + &(*platform_version);
         self.digester.input_str(&content_to_hash);
 
-        tag.to_string().clone() + &self.digester.result_str()
+        Ok(tag.to_string().clone() + &self.digester.result_str())
     }
 }
 
@@ -269,9 +248,9 @@ pub mod test {
 
     #[test]
     fn it_does_not_create_same_hash_with_same_source_but_distinct_device() {
-        let mut c = create_cache_dummy_backend();
         let src = get_demo_source();
         let (ctx, devices) = get_context();
+        let mut hasher = DefaultHasher::new();
 
         let program = Program::from_source(&ctx, src).unwrap();
         program.build(&devices).unwrap();
@@ -279,7 +258,7 @@ pub mod test {
 
         let keys: Vec<String> = devices.
             iter().
-            map(|x| c.build_cache_key(&x, &src.to_string(), &"".to_string())).
+            map(|x| hasher.get_key(&x, &src.to_string(), &"".to_string()).unwrap()).
             collect();
 
         let mut unique_keys = keys.clone();
@@ -300,13 +279,13 @@ pub mod test {
 
     #[test]
     fn it_creates_distinct_hashes_with_options_and_without() {
-        let mut c = create_cache_dummy_backend();
         let src = get_demo_source();
         let (_, devices) = get_context();
+        let mut hasher = DefaultHasher::new();
 
         let device = &devices[0];
-        let key_wo_options = c.build_cache_key(&device, &src.to_string(), &"".to_string());
-        let key_with_options = c.build_cache_key(&device, &src.to_string(), &"-D test=2".to_string());
+        let key_wo_options = hasher.get_key(&device, &src.to_string(), &"".to_string()).unwrap();
+        let key_with_options = hasher.get_key(&device, &src.to_string(), &"-D test=2".to_string()).unwrap();
 
         assert!(key_wo_options != key_with_options)
     }
