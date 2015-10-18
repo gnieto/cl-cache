@@ -118,6 +118,7 @@ pub extern "C" fn cl_cache_get_with_tag(
 	if cache_result.is_none() {
 		return ptr::null_mut();
 	}
+
 	let cache = cache_result.unwrap();
 	let devices_vec = get_devices_vector(num_devices, devices);
 	let context = Context::from_id(context as cl_context);
@@ -191,19 +192,21 @@ pub extern "C" fn cl_cache_get_with_options(
 	}
 	let options_cstr = option_str.unwrap();
 
-	let cache = get_cache(cache_id as usize).unwrap();
-	
-	let context = Context::from_id(context as cl_context);
-	let devices_vec = get_devices_vector(num_devices, devices);
+	if let Some(cache) = get_cache(cache_id as usize) {
+		let context = Context::from_id(context as cl_context);
+		let devices_vec = get_devices_vector(num_devices, devices);
 
- 	let get_result = cache.borrow_mut().get_with_options(
- 		&source_cstr,
- 		&devices_vec,
- 		&context,
- 		&options_cstr,
- 	);
+	 	let get_result = cache.borrow_mut().get_with_options(
+	 		&source_cstr,
+	 		&devices_vec,
+	 		&context,
+	 		&options_cstr,
+	 	);
 
- 	return_from_program_result(get_result)
+	 	return_from_program_result(get_result)
+	} else {
+		ptr::null_mut()
+	}
 }
 
 fn get_devices_vector(num_devices: u8, devices: *const libc::c_void) -> Vec<Rc<Device>> {

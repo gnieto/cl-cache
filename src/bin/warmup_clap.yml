@@ -46,3 +46,9 @@ args:
         short: yaml
         takes_value: true
         help: Read target YAML file to load the works
+arg_groups:
+    - input-vals:
+        required: true
+        args:
+            - src_directory
+            - yaml

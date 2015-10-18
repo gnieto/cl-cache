@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use cache::CacheBackend;
+use cache::{CacheBackend, KeyError};
 
 pub struct Volatile {
 	map: BTreeMap<String, Vec<u8>>,
@@ -14,17 +14,19 @@ impl Volatile {
 }
 
 impl CacheBackend for Volatile {
-    fn get(&self, key: &String) -> Option<Vec<u8>> {
+    fn get(&self, key: &String) -> Result<Vec<u8>, KeyError> {
         let content = self.map.get(key);
 
         match content {
-        	None => None,
-        	Some(binary) => Some(binary.clone()),
+        	None => Err(KeyError::KeyNotFound),
+        	Some(binary) => Ok(binary.clone()),
         }
     }
 
-    fn put(&mut self, key: &String, payload: &Vec<u8>) {
+    fn put(&mut self, key: &String, payload: &Vec<u8>) -> Result<(), KeyError> {
     	self.map.insert(key.clone(), payload.clone());
+
+    	Ok(())
     }
 }
 
@@ -36,6 +38,6 @@ mod test {
 	#[test]
 	fn it_returns_none_on_empty_cache() {
 		let c = Volatile::new();
-		assert!(c.get(&("test".to_string())).is_none());
+		assert!(c.get(&("test".to_string())).is_err());
 	}
 }

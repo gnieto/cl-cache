@@ -25,18 +25,20 @@ use std::str;
 use std::io::Read;
 use std::io;
 use std::result::Result;
-use std::path::*;
-use yaml_rust::{YamlLoader, Yaml};
+use std::path::PathBuf;
+use yaml_rust::{YamlLoader, Yaml, ScanError};
 use std::rc::Rc;
+use std::fmt::{Display, Formatter, Error};
+use std::ffi::OsStr;
 
 use ansi_term::Colour::*;
 
 pub fn main() {
 	let yaml = load_yaml!("warmup_clap.yml");
     let matches = App::from_yaml(yaml).get_matches();
-    let mut jobs = if matches.is_present("yaml") {
-    	let yaml = matches.value_of("yaml").unwrap();
-    	let possible_jobs = load_from_yaml(yaml);
+
+    let mut jobs = if let Some(yaml) = matches.value_of("yaml") {
+		let possible_jobs = load_from_yaml(yaml);
 
     	if possible_jobs.is_err() {
     		println!("Could not decode the target YAML: {}", yaml);
@@ -44,12 +46,13 @@ pub fn main() {
     		return
     	}
 
-    	possible_jobs.unwrap()    	
+    	possible_jobs.unwrap()
     } else {
-    	let job = WarmupJob::from_decoder(Box::new(&matches)).unwrap();
+    	let mut jobs = Vec::new();
 
-	    let mut jobs = Vec::new();
-	    jobs.push(job);
+    	if let Ok(job) = WarmupJob::from_decoder(Box::new(&matches)) {
+			jobs.push(job);
+    	}
 
 	    jobs
     };
@@ -72,34 +75,28 @@ pub fn main() {
     }
 }
 
-fn load_from_yaml(file: &str) -> Result<Vec<WarmupJob>, String> {
-	let file_open_result = File::open(file);
-
- 	if file_open_result.is_err() {
- 		return Err("Could not open target file".to_string());
- 	}
-
- 	let mut file = file_open_result.unwrap();
+fn load_from_yaml(file: &str) -> Result<Vec<WarmupJob>, YamlError> {
+	let mut file = try!{File::open(file)};
  	let mut file_str = Vec::new();
- 	file.read_to_end(&mut file_str).unwrap();
+
+ 	try!{file.read_to_end(&mut file_str)};
  	let str_result = unsafe{ String::from_utf8_unchecked(file_str) };
- 	let ref yaml_result = YamlLoader::load_from_str(&str_result).unwrap();
+ 	let ref yaml_result = try!{YamlLoader::load_from_str(&str_result)};
  	let doc = &yaml_result[0];
 
- 	if doc["jobs"].as_vec().is_none() {
- 		return Err("Field 'jobs' on root not found".to_string());
- 	}
+ 	let empty_yaml_jobs = Vec::new();
+ 	let yaml_jobs = doc["jobs"].as_vec().unwrap_or(&empty_yaml_jobs);
 
 	let mut jobs = Vec::new();
 
-	for job_yaml in doc["jobs"].as_vec().unwrap() {
+	for job_yaml in yaml_jobs {
 		if job_yaml.as_hash().is_none() {
-			return Err("Jobs child is not a hash".to_string());
+			return Err(YamlError::new("Jobs child is not a hash".to_string()));
 		}
 
 		for (job_name, job_hash) in job_yaml.as_hash().unwrap() {
 			if job_hash["source"].is_badvalue() {
-				return Err("Some of the childs are not a hash or 'source' field not found".to_string());
+				return Err(YamlError::new("Some of the childs are not a hash or 'source' field not found".to_string()));
 			}
 
 			let maybe_job = WarmupJob::from_decoder(Box::new(job_hash));
@@ -118,6 +115,41 @@ fn load_from_yaml(file: &str) -> Result<Vec<WarmupJob>, String> {
 	Ok(jobs)
 }
 
+#[derive(Debug)]
+struct YamlError {
+	error: String,
+}
+
+impl YamlError {
+	pub fn new(str_error: String) -> YamlError {
+		YamlError {
+			error: str_error,
+		}
+	}
+}
+
+impl Display for YamlError {
+	fn fmt(&self, formatter: &mut Formatter) -> Result<(), Error> {
+		formatter.write_str(&self.error)
+	}
+}
+
+impl From<std::io::Error> for YamlError {
+	fn from(error: std::io::Error) -> YamlError {
+		YamlError {
+			error: format!{"Could not open file {}", error}
+		}
+	}
+}
+
+impl From<ScanError> for YamlError {
+	fn from(error: ScanError) -> YamlError {
+		YamlError {
+			error: format!{"Error while decoding yaml file: {}", error}
+		}
+	}
+}
+
 struct WarmupJob {
 	src: String,
 	options: String,
@@ -132,7 +164,7 @@ struct WarmupJob {
 }
 
 trait JobDecoder {
-	fn get_input(&self) -> String;
+	fn get_input(&self) -> Option<String>;
 	fn get_output(&self) -> String;
 	fn get_options(&self) -> String;
 	fn get_device_query(&self) -> DeviceQuery;
@@ -176,8 +208,12 @@ impl<'a, 'b> JobDecoder for ArgMatches<'a, 'b> {
 				DeviceQuery::Index(index)
 			},
 			(_, _, true) => {
-				let regex = Regex::new(self.value_of("device_regexp").unwrap()).unwrap();
-				DeviceQuery::Regexp(regex.clone())
+				if let Ok(regex) = Regex::new(self.value_of("device_regexp").unwrap()) {
+					DeviceQuery::Regexp(regex.clone())	
+				} else {
+					DeviceQuery::Type(DeviceType::All)		
+				}
+				
 			},
 			_ => DeviceQuery::Type(DeviceType::All),
 		};
@@ -185,8 +221,12 @@ impl<'a, 'b> JobDecoder for ArgMatches<'a, 'b> {
 		dq
 	}
 
-	fn get_input(&self) -> String {
-		self.value_of("src_directory").unwrap().to_string()
+	fn get_input(&self) -> Option<String> {
+		if self.is_present("src_directory") {
+			Some(self.value_of("src_directory").unwrap().to_string())
+		} else {
+			None
+		}
 	}
 
 	fn get_output(&self) -> String {
@@ -264,8 +304,11 @@ impl JobDecoder for Yaml {
 
 	}
 
-	fn get_input(&self) -> String {		
-		return self["source"].as_str().unwrap().to_string();
+	fn get_input(&self) -> Option<String> {
+		match self["source"].as_str() {
+			None => None,
+			Some(input) => Some(input.to_string()),
+		}
 	}
 
 	fn get_output(&self) -> String {
@@ -319,6 +362,11 @@ impl WarmupJob {
 
 	pub fn from_decoder(decoder: Box<&JobDecoder>) -> Result<WarmupJob, String> {
 		let out = decoder.get_output();
+		let input = decoder.get_input();
+
+		if input.is_none() {
+			return Err("No input folder with OpenCl sources specified".to_string());
+		}
 
 		let platform_query = decoder.get_platform_query();
 		let opt_platform = ClRoot::get_platform(&platform_query);
@@ -336,20 +384,24 @@ impl WarmupJob {
 
 		let context = Context::from_devices(&devices);
 
-		let job = WarmupJob {
-			src: decoder.get_input(),
-			options: decoder.get_options(),
-			devices: devices,
-			context: context,
-			extension: decoder.get_extension(),
-			recursive: decoder.get_recursive(),
-			verbose: decoder.get_verbose(),
-			cache: Cache::new(Box::new(FileSystemCache::new(out).unwrap())),
-			tagged: decoder.get_tag(),
-			name: None,
-		};
+		if let Some(cache_backend) = FileSystemCache::new(out) {
+			let job = WarmupJob {
+				src: input.unwrap(),
+				options: decoder.get_options(),
+				devices: devices,
+				context: context,
+				extension: decoder.get_extension(),
+				recursive: decoder.get_recursive(),
+				verbose: decoder.get_verbose(),
+				cache: Cache::new(Box::new(cache_backend)),
+				tagged: decoder.get_tag(),
+				name: None,
+			};
 
-		Ok(job)
+			Ok(job)
+		} else {
+			Err("Could not build a FileSystemCache".to_string())
+		}
 	}
 
 	pub fn execute(&mut self) -> Result<(), String> {
@@ -372,69 +424,49 @@ impl WarmupJob {
 	}
 
 	fn visit_path_buffer(&mut self, path: &PathBuf) {
-		match path.extension() {
-    		None => (),
-    		Some(ext) => if ext == self.extension.as_str() {
-				let mut file = File::open(path).unwrap();
-				let mut buffer: Vec<u8> = Vec::new();
-				file.read_to_end(&mut buffer).unwrap();
-				let source = unsafe {str::from_utf8_unchecked(buffer.as_slice())};
-
-				let result = if self.tagged.is_none() {
-					self.cache.get_with_options(
-						source,
-						&self.devices,
-						&self.context,
-						&self.options
-					)
-				} else {
-					let tag = self.tagged.clone().unwrap();
-					// TODO: Hide this piece of code. Common compilation point
-					let program = Program::from_source(&self.context, source).unwrap();
-
-			        let build_result = if self.options.len() > 0 {
-			            program.build_with_options(&self.devices, &self.options)
-			        } else {
-			            program.build(&self.devices)
-			        };
-			        
-			        // build_result
-			        if build_result.is_ok() {
-			        	let put_result = self.cache.put_with_tag(&tag, &self.devices, &program);
-			        	if put_result.is_ok() {
-			        		Ok(program)
-			        	} else {
-			        		Err(put_result.err().unwrap())
-			        	}
-			        } else {
-			        	Err(CacheError::ClError(build_result.err().unwrap()))
-			        }
-				};
-
-				match result {
-					Ok(_) => println!("No errors getting from cache. File: {}", Green.bold().paint(path.to_str().unwrap())),
-					Err(CacheError::CacheError) => println!("Some GENERIC error when getting from cache. File: {}", Red.bold().paint(path.to_str().unwrap())),
-					Err(CacheError::ClBuildError(hm)) => {
-						println!("Got some error compiling the program. File: {}", Red.bold().paint(path.to_str().unwrap()));
-						for (device, log) in hm {
-							if self.verbose > 0 {
-								println!("Device: {}", Cyan.bold().paint(&device.get_name().unwrap()));
-								println!("{}", log);
-							}
-						}
-					}
-					Err(CacheError::ClError(error)) => {
-						println!("Got some error opencl-related on file: {}", Red.bold().paint(path.to_str().unwrap()));
-						if self.verbose > 0 {
-							println!("{:?}", error);
-						}
-					},
-					Err(_) => {
-						println!("Got some unknown error on file: {}", Red.bold().paint(path.to_str().unwrap()));
-					}
-				}
-    		},
+    	let extension = path.extension().unwrap_or(OsStr::new(""));
+    	if extension != self.extension.as_str() {
+    		return
     	}
+
+    	let result = self.visit_matching_path(&path);
+    	self.show_visit_result(&result, &path)
+
+	}
+
+	fn visit_matching_path(&mut self, path: &PathBuf) -> Result<Program, CacheError> {
+		let mut file = try!{File::open(path)};
+		let mut buffer: Vec<u8> = Vec::new();
+		try!{file.read_to_end(&mut buffer)};
+		let source = unsafe {str::from_utf8_unchecked(buffer.as_slice())};
+
+		if self.tagged.is_none() {
+			self.cache.get_with_options(
+				source,
+				&self.devices,
+				&self.context,
+				&self.options
+			)
+		} else {
+	        let tag = self.tagged.clone().unwrap();
+	        let program = try!{Program::from_source(&self.context, source)};
+	        let build_result = if self.options.len() > 0 {
+	        	program.build_with_options(&self.devices, &self.options)
+	        } else {
+	        	program.build(&self.devices)
+	        };
+
+	        if build_result.is_ok() {
+	        	let put_result = self.cache.put_with_tag(&tag, &self.devices, &program);
+	        	if put_result.is_ok() {
+	        		Ok(program)
+	        	} else {
+	        		Err(put_result.err().unwrap())
+	        	}
+	        } else {
+	        	Err(CacheError::ClError(build_result.err().unwrap()))
+	        }
+		}
 	}
 
 	fn visit_dirs(&mut self, dir: &PathBuf, recursive: bool) -> io::Result<()> {
@@ -456,5 +488,30 @@ impl WarmupJob {
 	    }
 
 	    Ok(())
+	}
+
+	fn show_visit_result(&self, result: &Result<Program, CacheError>, path: &PathBuf) {
+		match result {
+			&Ok(_) => println!("No errors getting from cache. File: {}", Green.bold().paint(path.to_str().unwrap())),
+			&Err(CacheError::CacheError) => println!("Some GENERIC error when getting from cache. File: {}", Red.bold().paint(path.to_str().unwrap())),
+			&Err(CacheError::ClBuildError(ref hm)) => {
+				println!("Got some error compiling the program. File: {}", Red.bold().paint(path.to_str().unwrap()));
+				for (device, log) in hm {
+					if self.verbose > 0 {
+						println!("Device: {}", Cyan.bold().paint(&device.get_name().unwrap()));
+						println!("{}", log);
+					}
+				}
+			}
+			&Err(CacheError::ClError(ref error)) => {
+				println!("Got some error opencl-related on file: {}", Red.bold().paint(path.to_str().unwrap()));
+				if self.verbose > 0 {
+					println!("{:?}", error);
+				}
+			},
+			&Err(_) => {
+				println!("Got some unknown error on file: {}", Red.bold().paint(path.to_str().unwrap()));
+			}
+		}
 	}
 }

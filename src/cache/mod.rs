@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use crypto::digest::Digest;
 use crypto::sha2::Sha256;
 use std::rc::Rc;
+use std::io::Error;
 
 pub struct Cache {
     backend: Box<CacheBackend>,
@@ -36,10 +37,10 @@ impl Cache {
             let cache_result = self.backend.get(&key);
 
             match cache_result {
-                None => {
+                Err(_) => {
                     return Err(CacheError::NotAllBinariesLoaded(devices.clone()));
                 },
-                Some(binary) => {
+                Ok(binary) => {
                     binaries.push(binary);
                 },
             }
@@ -57,10 +58,14 @@ impl Cache {
         }
 
         for (idx, d) in devices.iter().enumerate() {
-            self.backend.put(
+            let put_result = self.backend.put(
                 &try!{self.key_hasher.get_tag_key(&d, &tag)},
                 &binaries[idx]
             );
+
+            if let Err(_) = put_result {
+                return Err(CacheError::CacheError);
+            }
         }
 
         Ok(())
@@ -79,11 +84,11 @@ impl Cache {
 
             let cache_result = self.backend.get(&key);
             match cache_result {
-                None => {
+                Err(_) => {
                     non_build_devices.push(device.clone());
                     keys.push(key.clone());
                 },
-                Some(binary) => {
+                Ok(binary) => {
                     binaries_hash.insert(device.clone(), binary);
                 },
             }
@@ -135,7 +140,12 @@ impl Cache {
 
         for (idx, device) in devices.iter().enumerate() {
             let binary = binaries[idx].clone();
-            self.backend.put(&keys[idx], &binary);
+            let put_result = self.backend.put(&keys[idx], &binary);
+
+            if let Err(_) = put_result {
+                return Err(CacheError::CacheError);
+            }
+
             binaries_hash.insert(device.clone(), binary);
         }
 
@@ -162,6 +172,7 @@ pub enum CacheError {
     NotAllBinariesLoaded(Vec<Rc<Device>>),
     NeedBinaryProgram(Rc<Device>),
     CacheError,
+    IoError(Error),
 }
 
 impl From<OpenClError> for CacheError {
@@ -170,9 +181,29 @@ impl From<OpenClError> for CacheError {
     }
 }
 
+impl From<Error> for CacheError {
+    fn from(error: Error) -> Self {
+        CacheError::IoError(error)
+    }
+}
+
+#[derive(Debug)]
+pub enum KeyError {
+    IoError,
+    KeyNotFound,
+    InvalidContent,
+}
+
+impl From<Error> for KeyError {
+    fn from(_: Error) -> Self {
+        KeyError::IoError
+    }
+}
+
+
 pub trait CacheBackend {
-    fn get(&self, key: &String) -> Option<Vec<u8>>;
-    fn put(&mut self, key: &String, payload: &Vec<u8>);
+    fn get(&self, key: &String) -> Result<Vec<u8>, KeyError>;
+    fn put(&mut self, key: &String, payload: &Vec<u8>) -> Result<(), KeyError>;
 }
 
 pub trait KeyHasher {
@@ -234,11 +265,13 @@ pub mod test {
     struct DummyCacheBackend;
 
     impl CacheBackend for DummyCacheBackend {
-        fn get(&self, _: &String) -> Option<Vec<u8>> {
-            None
+        fn get(&self, _: &String) -> Result<Vec<u8>, KeyError> {
+            Err(KeyError::KeyNotFound)
         }
 
-        fn put(&mut self, _: &String, _: &Vec<u8>) {}
+        fn put(&mut self, _: &String, _: &Vec<u8>) -> Result<(), KeyError> {
+            Ok(())
+        }
     }
 
     #[test]
