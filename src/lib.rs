@@ -1,10 +1,11 @@
 #![feature(static_mutex)]
 #![feature(cstr_to_str)]
-
 extern crate opencl;
 extern crate crypto;
 extern crate libc;
 extern crate regex;
+#[macro_use]
+extern crate log;
 
 pub mod cache;
 pub mod cl;
@@ -20,7 +21,6 @@ use cl::program::Program;
 use cl::context::Context;
 use std::sync::Arc;
 use std::ptr;
-// use std::ffi::CStr;
 
 thread_local!(static CACHE_CONT: RefCell<CacheContainer> = RefCell::new(CacheContainer::new()));
 

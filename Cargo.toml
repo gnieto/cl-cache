@@ -16,6 +16,8 @@ libc = "*"
 ansi_term = "*"
 regex = "0.1.41"
 yaml-rust = "*"
+log = "0.3"
+env_logger = "0.3"
 
 [dependencies.clap]
 features = ["yaml"]

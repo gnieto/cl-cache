@@ -1,35 +1,24 @@
 jobs:
-    - amd_samples:
-        source: /opt/AMDAPP/samples/opencl/cl/
-        output: /tmp/demo
+    - gromacs:
+        source: /home/gnieto/git/gromacs/src/gromacs
+        output: /tmp/gromacs
         recursive: true
         extension: cl
-        device_type: gpu
-        device_index: 0
-        device_regex: Oland
-        platform_regex: AMD
-        platform_index: 0
-        options: -Dtest=22
-        verbose: 0
-    - amd_samples2:
-        source: /opt/AMDAPP/samples/opencl/cl/
-        output: /tmp/demo2
+        verbose: 3
+        options: -D _AMD_SOURCE_ -I/home/gnieto/git/gromacs/src/gromacs/mdlib/nbnxn_ocl/ -I/home/gnieto/git/gromacs/src/gromacs/gmxlib/ocl_tools/ -I/home/gnieto/git/gromacs/src/gromacs/mdlib/ -I/home/gnieto/git/gromacs/src/gromacs/pbcutil/
+        device_type: all
+    - broccoli:
+        source: /home/gnieto/git/BROCCOLI/code/Kernels
+        output: /tmp/broccoli
         recursive: true
+        extension: cpp
+        verbose: 3
+        device_type: all
+    - johnTheRipper_office2007:
+        source: /home/gnieto/git/JohnTheRipper/src/opencl/office2007_kernel.cl
+        output: /tmp/john
         extension: cl
-        device_type: gpu
-        device_index: 0
-        device_regex: Oland
-        platform_index: 0
-        options: -Dtest=22
-        verbose: 0
-    - tagged:
-        source: /opt/AMDAPP/samples/opencl/cl/HelloWorld/HelloWorld_Kernel.cl
-        output: .
-        recursive: true
-        extension: cl
-        device_type: gpu
-        device_index: 0
-        device_regex: Oland
-        platform_index: 0
-        tag: HelloWorld_slow
-        verbose: 0b
+        verbose: 3
+        options: -I/home/gnieto/git/JohnTheRipper/src -DUNICODE_LENGTH=104 -DHASH_LOOPS=500
+        device_type: all
+        tag: office_2007

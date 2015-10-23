@@ -4,6 +4,8 @@ extern crate clcache;
 extern crate ansi_term;
 extern crate regex;
 extern crate yaml_rust;
+#[macro_use] extern crate log;
+extern crate env_logger;
 
 use clap::App;
 use clap::ArgMatches;
@@ -34,6 +36,8 @@ use std::ffi::OsStr;
 use ansi_term::Colour::*;
 
 pub fn main() {
+	env_logger::init().unwrap();
+	info!("Warmup binary loaded");
 	let yaml = load_yaml!("warmup_clap.yml");
     let matches = App::from_yaml(yaml).get_matches();
 
@@ -161,6 +165,23 @@ struct WarmupJob {
 	cache: Cache,
 	tagged: Option<String>,
 	pub name: Option<String>,
+	rebuild: bool,
+}
+
+impl Display for WarmupJob {
+	fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+		writeln!(f, "Name: {:?}", self.name);
+		writeln!(f, "Src: {}", self.src);
+		writeln!(f, "Options: {}", self.options);
+		writeln!(f, "Devices: {:?}", self.devices);
+		writeln!(f, "Context: {:?}", self.context);
+		writeln!(f, "Recursive: {}", self.recursive);
+		writeln!(f, "Extension: {}", self.extension);
+		writeln!(f, "Verbose: {}", self.verbose);
+		writeln!(f, "Tag: {:?}", self.tagged);
+
+		Ok(())
+	}
 }
 
 trait JobDecoder {
@@ -173,6 +194,7 @@ trait JobDecoder {
 	fn get_extension(&self) -> String;
 	fn get_verbose(&self) -> u8;
 	fn get_tag(&self) -> Option<String>;
+	fn get_force_rebuild(&self) -> bool;
 }
 
 impl<'a, 'b> JobDecoder for ArgMatches<'a, 'b> {
@@ -267,6 +289,10 @@ impl<'a, 'b> JobDecoder for ArgMatches<'a, 'b> {
 	fn get_tag(&self) -> Option<String> {
 		None
 	}
+
+	fn get_force_rebuild(&self) -> bool {
+		self.is_present("force_rebuild")
+	}
 }
 
 impl JobDecoder for Yaml {
@@ -343,7 +369,7 @@ impl JobDecoder for Yaml {
 	}
 
 	fn get_verbose(&self) -> u8 {
-		return self["options"].as_i64().unwrap_or(0) as u8;
+		return self["verbose"].as_i64().unwrap_or(0) as u8;
 	}
 
 	fn get_tag(&self) -> Option<String> {
@@ -352,6 +378,10 @@ impl JobDecoder for Yaml {
 		} else {
 			Some(self["tag"].as_str().unwrap().to_string())
 		}
+	}
+
+	fn get_force_rebuild(&self) -> bool {
+		self["force_rebuild"].as_bool().unwrap_or(false)
 	}
 }
 
@@ -396,6 +426,7 @@ impl WarmupJob {
 				cache: Cache::new(Box::new(cache_backend)),
 				tagged: decoder.get_tag(),
 				name: None,
+				rebuild: decoder.get_force_rebuild(),
 			};
 
 			Ok(job)
@@ -405,6 +436,7 @@ impl WarmupJob {
 	}
 
 	pub fn execute(&mut self) -> Result<(), String> {
+		info!("Starting job {}", &self);
 		let buffer = PathBuf::from(&self.src);
 		let recursive = self.recursive;
 	    let visit_result = self.visit_dirs(&buffer, recursive);
@@ -441,6 +473,7 @@ impl WarmupJob {
 		let source = unsafe {str::from_utf8_unchecked(buffer.as_slice())};
 
 		if self.tagged.is_none() {
+			info!("Get with options");
 			self.cache.get_with_options(
 				source,
 				&self.devices,
@@ -448,24 +481,42 @@ impl WarmupJob {
 				&self.options
 			)
 		} else {
-	        let tag = self.tagged.clone().unwrap();
-	        let program = try!{Program::from_source(&self.context, source)};
-	        let build_result = if self.options.len() > 0 {
-	        	program.build_with_options(&self.devices, &self.options)
-	        } else {
-	        	program.build(&self.devices)
-	        };
+			if self.rebuild {
+				self.build_tagged_program(&source)
+			} else {
+				let tag = self.tagged.clone().unwrap();
+				let get_tag_result = self.cache.get_with_tag(
+					&tag,
+					&self.devices,
+					&self.context
+				);
 
-	        if build_result.is_ok() {
-	        	let put_result = self.cache.put_with_tag(&tag, &self.devices, &program);
-	        	if put_result.is_ok() {
-	        		Ok(program)
-	        	} else {
-	        		Err(put_result.err().unwrap())
-	        	}
-	        } else {
-	        	Err(CacheError::ClError(build_result.err().unwrap()))
-	        }
+				match get_tag_result {
+					Err(_) => self.build_tagged_program(&source),
+					Ok(program) => Ok(program),
+				}
+			}
+		}
+	}
+
+	fn build_tagged_program(&mut self, source: &str) -> Result<Program, CacheError> {
+		let tag = self.tagged.clone().unwrap();
+		let program = try!{Program::from_source(&self.context, source)};
+		let build_result = if self.options.len() > 0 {
+			program.build_with_options(&self.devices, &self.options)
+		} else {
+			program.build(&self.devices)
+		};
+
+		if build_result.is_ok() {
+			let put_result = self.cache.put_with_tag(&tag, &self.devices, &program);
+			if put_result.is_ok() {
+				Ok(program)
+			} else {
+				Err(put_result.err().unwrap())
+			}
+		} else {
+			Err(CacheError::ClError(build_result.err().unwrap()))
 		}
 	}
 
@@ -496,6 +547,7 @@ impl WarmupJob {
 			&Err(CacheError::CacheError) => println!("Some GENERIC error when getting from cache. File: {}", Red.bold().paint(path.to_str().unwrap())),
 			&Err(CacheError::ClBuildError(ref hm)) => {
 				println!("Got some error compiling the program. File: {}", Red.bold().paint(path.to_str().unwrap()));
+				println!("Verbosity: {}", self.verbose);
 				for (device, log) in hm {
 					if self.verbose > 0 {
 						println!("Device: {}", Cyan.bold().paint(&device.get_name().unwrap()));

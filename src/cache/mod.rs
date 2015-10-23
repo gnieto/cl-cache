@@ -38,9 +38,11 @@ impl Cache {
 
             match cache_result {
                 Err(_) => {
+                    info!("Program not found for device: {:?}", device);
                     return Err(CacheError::NotAllBinariesLoaded(devices.clone()));
                 },
                 Ok(binary) => {
+                    info!("Program found on cache for device: {:?}", device);
                     binaries.push(binary);
                 },
             }

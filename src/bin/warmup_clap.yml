@@ -43,9 +43,13 @@ args:
         takes_value: true
         help: Flags that will be forwarded to clCreateProgramWithSource
     - yaml:
-        short: yaml
+        short: y
         takes_value: true
         help: Read target YAML file to load the works
+    - force_rebuild:
+        short: f
+        takes_value: false
+        help: If true, it will rebuild all the jobs. Otherwise, will compile them only if they were not present
 arg_groups:
     - input-vals:
         required: true
